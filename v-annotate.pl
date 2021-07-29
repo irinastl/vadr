@@ -1308,6 +1308,10 @@ my %stg_results_HHH = (); # key 1: sequence name,
                           #        where 'pre' implies pre-processing replace-ambiguities stage, and 'std' implies standard stage
                           # key 3: ("model", "coords", "bstrand", "score", "bias")
 
+# create the sequence index hash, we actually only use this to name per-feature CDS/ORF files when looking for leading/trailing Xs
+my %seq_idx_H = ();
+utl_IdxHFromA(\%seq_idx_H, \@seq_name_A, "seq_idx hash", $FH_HR);
+
 ###############################################################
 # If -r, pre-processing to identify and replace stretches of Ns
 ###############################################################
@@ -1708,8 +1712,8 @@ for($mdl_idx = 0; $mdl_idx < $nmdl; $mdl_idx++) {
     # parse the stk alignments
     for(my $a = 0; $a < scalar(@{$stk_file_HA{$mdl_name}}); $a++) { 
       if(-s $stk_file_HA{$mdl_name}[$a]) { # skip empty alignments, which may exist if all seqs were not alignable
-        parse_stk_and_add_alignment_cds_and_mp_alerts($stk_file_HA{$mdl_name}[$a], \$in_sqfile, $mdl_tt,
-                                                      \%seq_len_H, \%seq_inserts_HH, \@{$sgm_info_HAH{$mdl_name}},
+        parse_stk_and_add_alignment_cds_and_mp_alerts($stk_file_HA{$mdl_name}[$a], \$in_sqfile, $mdl_tt, 
+                                                      \%seq_len_H, \%seq_inserts_HH, \%seq_idx_H, \@{$sgm_info_HAH{$mdl_name}},
                                                       \@{$ftr_info_HAH{$mdl_name}}, \%alt_info_HH, \%stg_results_HHH,
                                                       \%{$sgm_results_HHAH{$mdl_name}}, \%{$ftr_results_HHAH{$mdl_name}}, 
                                                       \%alt_seq_instances_HH, \%alt_ftr_instances_HHH, \%dcr_output_HAH,
@@ -3851,6 +3855,7 @@ sub cmalign_or_glsearch_run {
 #  $mdl_tt:                    the translation table ('1' for standard)
 #  $seq_len_HR:                REF to hash of sequence lengths, PRE-FILLED
 #  $seq_inserts_HHR:           REF to hash of hashes with sequence insert information, PRE-FILLED
+#  $seq_idx_HR:                REF to hash mapping sequence names to indices in input file
 #  $sgm_info_AHR:              REF to array of hashes with information on the model segments, PRE-FILLED
 #  $ftr_info_AHR:              REF to array of hashes with information on the features, PRE-FILLED
 #  $alt_info_HHR:              REF to hash of hashes with information on the errors, PRE-FILLED
@@ -3883,10 +3888,10 @@ sub cmalign_or_glsearch_run {
 ################################################################# 
 sub parse_stk_and_add_alignment_cds_and_mp_alerts { 
   my $sub_name = "parse_stk_and_add_alignment_cds_and_mp_alerts()";
-  my $nargs_exp = 25;
+  my $nargs_exp = 26;
   if(scalar(@_) != $nargs_exp) { die "ERROR $sub_name entered with wrong number of input args"; }
   
-  my ($stk_file, $in_sqfile_R, $mdl_tt, $seq_len_HR, $seq_inserts_HHR, $sgm_info_AHR, 
+  my ($stk_file, $in_sqfile_R, $mdl_tt, $seq_len_HR, $seq_inserts_HHR, $seq_idx_HR, $sgm_info_AHR, 
       $ftr_info_AHR, $alt_info_HHR, $stg_results_HHHR, $sgm_results_HAHR, $ftr_results_HAHR, 
       $alt_seq_instances_HHR, $alt_ftr_instances_HHHR, $dcr_output_HAHR, 
       $mdl_name, $ftr_fileroot_AR, $ftr_outroot_AR, 
@@ -4558,7 +4563,7 @@ sub parse_stk_and_add_alignment_cds_and_mp_alerts {
       # fetch features, detect and add cds and mp alerts for this sequence
       # we have to do this here becuase we need @ua2rf_A map of unaligned positions 
       # to RF positions to report model positions for alerts
-      fetch_features_and_add_cds_and_mp_alerts_for_one_sequence(\%execs_H, 
+      fetch_features_and_add_cds_and_mp_alerts_for_one_sequence(\%execs_H, $seq_idx_HR, 
                                                                 $sqfile_for_cds_mp_alerts, $sqfile_for_output_fastas, $sqfile_for_pv,
                                                                 $do_separate_cds_fa_files, $mdl_name, $mdl_tt, 
                                                                 $seq_name, $seq_len_HR, $ftr_info_AHR, $sgm_info_AHR, $alt_info_HHR, 
@@ -5218,6 +5223,7 @@ sub cmalign_store_overflow {
 #
 # Arguments:
 #  $execs_HR:                  REF to hash with paths to executables
+#  $seq_idx_HR:                REF to hash mapping sequence names to indices in input file
 #  $sqfile_for_cds_mp_alerts:  REF to Bio::Easel::SqFile object, open sequence file with sequences
 #                              to fetch CDS and mat_peptides from to analyze for possible alerts 
 #  $sqfile_for_output_fastas:  REF to Bio::Easel::SqFile object, open sequence file with sequences
@@ -5253,10 +5259,10 @@ sub cmalign_store_overflow {
 #################################################################
 sub fetch_features_and_add_cds_and_mp_alerts_for_one_sequence { 
   my $sub_name = "fetch_features_and_add_cds_and_mp_alerts_for_one_sequence";
-  my $nargs_exp = 21;
+  my $nargs_exp = 22;
   if(scalar(@_) != $nargs_exp) { die "ERROR $sub_name entered with wrong number of input args"; }
 
-  my ($execs_HR, $sqfile_for_cds_mp_alerts, $sqfile_for_output_fastas, $sqfile_for_pv,
+  my ($execs_HR, $seq_idx_HR, $sqfile_for_cds_mp_alerts, $sqfile_for_output_fastas, $sqfile_for_pv,
       $do_separate_cds_fa_files, $mdl_name, $mdl_tt, 
       $seq_name, $seq_len_HR, $ftr_info_AHR, $sgm_info_AHR, $alt_info_HHR, 
       $sgm_results_HAHR, $ftr_results_HAHR, $alt_ftr_instances_HHHR, 
@@ -5277,7 +5283,8 @@ sub fetch_features_and_add_cds_and_mp_alerts_for_one_sequence {
   my $sqfile_for_output_fastas_path = $sqfile_for_output_fastas->path;
   my $sqfile_for_pv_path            = $sqfile_for_pv->path;
 
-  my $seq_len  = $seq_len_HR->{$seq_name};
+  my $seq_len = $seq_len_HR->{$seq_name};
+  my $seq_idx = $seq_idx_HR->{$seq_name};
 
   for(my $ftr_idx = 0; $ftr_idx < $nftr; $ftr_idx++) { 
     my $ftr_is_cds_or_mp = vdr_FeatureTypeIsCdsOrMatPeptide($ftr_info_AHR, $ftr_idx);
@@ -5470,10 +5477,10 @@ sub fetch_features_and_add_cds_and_mp_alerts_for_one_sequence {
       # if CDS, determine if translated CDS begins/ends with an X after/before terminal stretch of Ns
       if($ftr_is_cds) { 
         # these files may or may not be created in determine_terminal_Xs_if_necessary_by_translating()
-        my $cds_fa_file    = $out_root . "." . $mdl_name . "." . $ftr_fileroot_AR->[$ftr_idx] . ".x.cds.fa";
-        my $orf_fa_file    = $out_root . "." . $mdl_name . "." . $ftr_fileroot_AR->[$ftr_idx] . ".x.orf.fa";
-        my $cds_fa_file_pv = $out_root . "." . $mdl_name . "." . $ftr_fileroot_AR->[$ftr_idx] . ".x.cds.pv.fa";
-        my $orf_fa_file_pv = $out_root . "." . $mdl_name . "." . $ftr_fileroot_AR->[$ftr_idx] . ".x.orf.pv.fa";
+        my $cds_fa_file    = $out_root . "." . $mdl_name . "." . $seq_idx . "." . $ftr_fileroot_AR->[$ftr_idx] . ".x.cds.fa";
+        my $orf_fa_file    = $out_root . "." . $mdl_name . "." . $seq_idx . "." . $ftr_fileroot_AR->[$ftr_idx] . ".x.orf.fa";
+        my $cds_fa_file_pv = $out_root . "." . $mdl_name . "." . $seq_idx . "." . $ftr_fileroot_AR->[$ftr_idx] . ".x.cds.pv.fa";
+        my $orf_fa_file_pv = $out_root . "." . $mdl_name . "." . $seq_idx . "." . $ftr_fileroot_AR->[$ftr_idx] . ".x.orf.pv.fa";
         if(! defined $ftr_results_HR->{"n_codon_start"}) { 
           ofile_FAIL("ERROR in $sub_name, sequence $seq_name CDS feature (ftr_idx: $ftr_idx) has no codon_start info", 1, $FH_HR);
         }
@@ -6345,8 +6352,8 @@ sub add_protein_validation_alerts {
           my $n_stop         = undef; # predicted stop   from CM 
           my $n_strand       = undef; # predicted strand from CM 
           my $n_len          = undef; # predicted length from CM (summed over all segments)
-          my $n_5nlen_pv     = undef; # number of Ns at 5' end of CDS
-          my $n_3nlen_pv     = undef; # number of Ns at 3' end of CDS
+          my $n_5xlen_pv     = undef; # number of nts at 5' end of CDS before first non-X after translation
+          my $n_3xlen_pv     = undef; # number of nts at 3' end of CDS before first non-X after translation
           my $n_scoords      = undef; # coordinates of nucleotide prediction in sequence positions
           my $n_mcoords      = undef; # coordinates of nucleotide prediction in model positions
           my $p_qstart       = undef; # predicted query start from blastx
@@ -6381,8 +6388,8 @@ sub add_protein_validation_alerts {
             $n_stop     = $ftr_results_HR->{"n_stop"};
             $n_strand   = $ftr_results_HR->{"n_strand"};
             $n_len      = $ftr_results_HR->{"n_len"};
-            $n_5nlen_pv = $ftr_results_HR->{"n_5nlen_pv"};
-            $n_3nlen_pv = $ftr_results_HR->{"n_3nlen_pv"};
+            $n_5xlen_pv = $ftr_results_HR->{"n_5xlen_pv"};
+            $n_3xlen_pv = $ftr_results_HR->{"n_3xlen_pv"};
             if(defined $ftr_results_HR->{"n_scoords"}) { $n_scoords = $ftr_results_HR->{"n_scoords"}; }
             if(defined $ftr_results_HR->{"n_mcoords"}) { $n_mcoords = $ftr_results_HR->{"n_mcoords"}; }
           }
@@ -6453,8 +6460,8 @@ sub add_protein_validation_alerts {
 
               if($do_cds_trim) { 
                 # adjust the tolerance to allow the Ns at the ends to be missed by the protein validation step
-                $cur_5aln_tol += $n_5nlen_pv;
-                $cur_3aln_tol += $n_3nlen_pv;
+                $cur_5aln_tol += $n_5xlen_pv;
+                $cur_3aln_tol += $n_3xlen_pv;
                 # if the tolerance is within 3 of the full length, reset it to the default
                 if($cur_5aln_tol >= ($n_len - 3)) { 
                   $cur_5aln_tol = $aln_tol;
@@ -13012,7 +13019,7 @@ sub count_terminal_Ns_or_Xs_in_sqstring {
 
   my ($sqstring, $do_X) = (@_);
 
-  printf("in $sub_name, sqstring: $sqstring\n");
+  #printf("in $sub_name, sqstring: $sqstring\n");
 
   my $pos_retval = undef;
   if($do_X) { 
@@ -13071,7 +13078,8 @@ sub determine_terminal_Xs_if_necessary_by_translating {
 
   my ($esl_translate, $cds_sqstring, $cds_5nlen, $cds_3nlen, $cds_seq_name, $cds_scoords, $frame, $tt, $cds_fa_file, $orf_fa_file, $opt_HHR, $ofile_info_HHR) = (@_);
   
-  printf("in $sub_name, cds_sqstring: $cds_sqstring cds_5nlen: $cds_5nlen, cds_3nlen: $cds_3nlen, cds_seq_name: $cds_seq_name, frame: $frame tt: $tt\n");
+  #printf("in $sub_name\n");
+  #printf("in $sub_name, cds_sqstring: $cds_sqstring cds_5nlen: $cds_5nlen, cds_3nlen: $cds_3nlen, cds_seq_name: $cds_seq_name, frame: $frame tt: $tt\n");
 
   my $FH_HR = $ofile_info_HH{"FH"};
 
@@ -13104,15 +13112,16 @@ sub determine_terminal_Xs_if_necessary_by_translating {
       
       my $first_codon  = undef;
       my $final_codon = undef;
-      printf("notermn_cds_sqstring:     $notermn_cds_sqstring\n");
-      printf("notermn_cds_len:          $notermn_cds_len\n");
-      printf("notermn_frame:  $notermn_frame\n");
-      printf("final_codon: substr(notermn_cds_sqstring, %d, 3)\n", (-3 - (($notermn_cds_len - ($notermn_frame-1)) % 3)));
+      #printf("notermn_cds_sqstring:     $notermn_cds_sqstring\n");
+      #printf("notermn_cds_len:          $notermn_cds_len\n");
+      #printf("notermn_frame:  $notermn_frame\n");
+      #printf("final_codon: substr(notermn_cds_sqstring, %d, 3)\n", (-3 - (($notermn_cds_len - ($notermn_frame-1)) % 3)));
       
       $first_codon = substr($notermn_cds_sqstring, ($notermn_frame-1), 3);
       $final_codon = substr($notermn_cds_sqstring, (-3 - (($notermn_cds_len - ($notermn_frame-1)) % 3)), 3);
       if(($first_codon =~ m/[^ACGTUacgtu]/) || 
          ($final_codon =~ m/[^ACGTUacgtu]/)) { 
+        printf("looking for Xs cds_sqstring: $cds_sqstring cds_5nlen: $cds_5nlen, cds_3nlen: $cds_3nlen, cds_seq_name: $cds_seq_name, frame: $frame tt: $tt\n");
         # first and/or final codon could be an X
         # create a single fasta file with $notermn_cds_sqstring
         open(CDSOUT, ">", $cds_fa_file) || ofile_FileOpenFailure($cds_fa_file, $sub_name, $!, "writing", $FH_HR);
@@ -13125,8 +13134,8 @@ sub determine_terminal_Xs_if_necessary_by_translating {
         printf("HEYA calling esl_translate_cds_to_protein_with_stops for seq: $cds_seq_name\n");
         my $aa_sqstring = esl_translate_cds_to_protein_with_stops($esl_translate, $cds_fa_file, $orf_fa_file, $notermn_frame, $tt, $notermn_cds_sqstring, $opt_HHR, $ofile_info_HHR);
         
-        $cds_5xlen = count_terminal_Ns_or_Xs_in_sqstring($notermn_cds_sqstring, 1);
-        $cds_3xlen = count_terminal_Ns_or_Xs_in_sqstring((scalar reverse($notermn_cds_sqstring)), 1);
+        $cds_5xlen = count_terminal_Ns_or_Xs_in_sqstring($aa_sqstring, 1);
+        $cds_3xlen = count_terminal_Ns_or_Xs_in_sqstring((scalar reverse($aa_sqstring)), 1);
         if($cds_5xlen == $notermn_cds_len) { 
           # entire $cds_sqstring is translated to Xs
           $cds_5xlen = $cds_len;
@@ -13143,7 +13152,16 @@ sub determine_terminal_Xs_if_necessary_by_translating {
         }
         else { 
           $cds_3xlen += $cds_3nlen; # 3' terminal Ns from CDS
-          $cds_stop_non_x = vdr_CoordsRelativeSingleCoordToAbsolute($cds_scoords, ($cds_len - $cds_5xlen), $FH_HR);
+          $cds_stop_non_x = vdr_CoordsRelativeSingleCoordToAbsolute($cds_scoords, ($cds_len - $cds_3xlen), $FH_HR);
+        }
+        print("returning from $sub_name\ncds_5xlen: $cds_5xlen\ncds_3xlen: $cds_3xlen\n");
+        if(defined $cds_start_non_x) { 
+          print("cds_start_non_x: $cds_start_non_x\n");
+          print("cds_stop_non_x:  $cds_stop_non_x\n");
+        }
+        else { 
+          print("cds_start_non_x: undef\n");
+          print("cds_stop_non_x:  undef\n");
         }
       } # end of if() statement entered if first or final codon includes an ambiguous nt
     } # end of 'if' entered if $notermn_cds_sqstring (which have 5' and 3' N stretches removed) has at least 1 full codon
