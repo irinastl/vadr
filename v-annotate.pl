@@ -5563,6 +5563,7 @@ sub fetch_features_and_add_cds_and_mp_alerts_for_one_sequence {
           if($ftr_is_cds) { 
             my @ftr_nxt_stp_A = ();
             sqstring_find_stops($ftr_sqstring_alt, $mdl_tt, \@ftr_nxt_stp_A, $FH_HR);
+            printf("HEYA ftr_sqstring_alt: $ftr_sqstring_alt ftr_nxt_stp_A[1]: " . $ftr_nxt_stp_A[1] . "\n");
             # check that final add codon is a valid stop, and add 'mutendcd' alert if not (and ambgnt3c not already reported)
             if(($ftr_len >= 3) && (! sqstring_check_stop($ftr_sqstring_alt, $mdl_tt, $FH_HR)) && (! defined $alt_str_H{"ambgnt3c"}) && (defined $ftr_3xlen) && ($ftr_3xlen == 0)) { 
               $alt_scoords  = "seq:" . vdr_CoordsSegmentCreate($ftr2org_pos_A[($ftr_len-2)], $ftr2org_pos_A[$ftr_len], $ftr_strand, $FH_HR) . ";";
@@ -13110,15 +13111,15 @@ sub determine_terminal_Xs_if_necessary_by_translating {
       # cds with terminal Ns removed is long enough to have at least 1 full codon
       my $notermn_cds_sqstring = substr($cds_sqstring, $cds_5nlen, $notermn_cds_len);
       
-      my $first_codon  = undef;
-      my $final_codon = undef;
       #printf("notermn_cds_sqstring:     $notermn_cds_sqstring\n");
       #printf("notermn_cds_len:          $notermn_cds_len\n");
       #printf("notermn_frame:  $notermn_frame\n");
       #printf("final_codon: substr(notermn_cds_sqstring, %d, 3)\n", (-3 - (($notermn_cds_len - ($notermn_frame-1)) % 3)));
-      
-      $first_codon = substr($notermn_cds_sqstring, ($notermn_frame-1), 3);
-      $final_codon = substr($notermn_cds_sqstring, (-3 - (($notermn_cds_len - ($notermn_frame-1)) % 3)), 3);
+
+      my $n_5untrans  = $notermn_frame-1;                     # number of nt untranslated 5' of first full codon
+      my $n_3untrans  = ($notermn_cds_len - $n_5untrans) % 3; # number of nt untranslated 3' of final full codon
+      my $first_codon = substr($notermn_cds_sqstring, $n_5untrans, 3);
+      my $final_codon = substr($notermn_cds_sqstring, (-3 - $n_3untrans), 3);
       if(($first_codon =~ m/[^ACGTUacgtu]/) || 
          ($final_codon =~ m/[^ACGTUacgtu]/)) { 
         printf("looking for Xs cds_sqstring: $cds_sqstring cds_5nlen: $cds_5nlen, cds_3nlen: $cds_3nlen, cds_seq_name: $cds_seq_name, frame: $frame tt: $tt\n");
@@ -13142,7 +13143,8 @@ sub determine_terminal_Xs_if_necessary_by_translating {
           $cds_start_non_x = -1;
         }
         else { 
-          $cds_5xlen += $cds_5nlen; # 5' terminal Ns from CDS
+          $cds_5xlen += $cds_5nlen;  # 5' terminal Ns from CDS
+          $cds_5xlen += $n_5untrans; # number of nt untranslated 5' of first full codon
           $cds_start_non_x = vdr_CoordsRelativeSingleCoordToAbsolute($cds_scoords, ($cds_5xlen + 1), $FH_HR);
         }
         if($cds_3xlen == $notermn_cds_len) { 
@@ -13151,7 +13153,8 @@ sub determine_terminal_Xs_if_necessary_by_translating {
           $cds_stop_non_x = -1;
         }
         else { 
-          $cds_3xlen += $cds_3nlen; # 3' terminal Ns from CDS
+          $cds_3xlen += $cds_3nlen;  # 3' terminal Ns from CDS
+          $cds_3xlen += $n_3untrans; # number of nt untranslated 3' of final full codon
           $cds_stop_non_x = vdr_CoordsRelativeSingleCoordToAbsolute($cds_scoords, ($cds_len - $cds_3xlen), $FH_HR);
         }
         print("returning from $sub_name\ncds_5xlen: $cds_5xlen\ncds_3xlen: $cds_3xlen\n");
