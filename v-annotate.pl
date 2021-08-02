@@ -9648,7 +9648,8 @@ sub output_feature_table {
   # two hash of arrays 1D keys: model names, values are arrays
   # we only fill these for each model as we need it, so as not 
   # to wastefully fill these for models for which no seqs have been assigned
-  my %ftr_min_len_HA     = (); # hash of arrays with minimum valid length per model/feature, 1D keys are model names, 2D elements are feature indices
+  my %ftr_min_len_HA  = (); # hash of arrays with minimum valid length per model/feature, 1D keys are model names, 2D elements are feature indices
+  my %ftr_gene2cds_HA = (); # hash of arrays with matching CDS feature for each gene, where matching means same start position, stop position and gene qualifier value
 
   my @pass_fa_A = (); # array of seq names for pass fasta file
   my @fail_fa_A = (); # array of seq names for fail fasta file
@@ -9677,6 +9678,7 @@ sub output_feature_table {
         $mdl_name = $mdl_sub_HR->{$mdl_name};
       }
       my $ftr_info_AHR     = \@{$ftr_info_HAHR->{$mdl_name}};     # for convenience
+      my $sgm_info_AHR     = \@{$sgm_info_HAHR->{$mdl_name}};     # for convenience
       my $ftr_results_HAHR = \%{$ftr_results_HHAHR->{$mdl_name}}; # for convenience
       my $sgm_results_HAHR = \%{$sgm_results_HHAHR->{$mdl_name}}; # for convenience
       my $nftr = scalar(@{$ftr_info_AHR});
@@ -9692,6 +9694,16 @@ sub output_feature_table {
           $ftr_min_len_HA{$mdl_name}[$ftr_idx] = (vdr_FeatureTypeIsCdsOrMatPeptideOrGene($ftr_info_AHR, $ftr_idx)) ?
               opt_Get("--minpvlen", $opt_HHR) : 1;
         }
+      }
+      
+      # fill @{$ftr_min_len_HA{$mdl_name}} for this model, if it's not already filled
+      # fill the @{$ftr_gene2cds_HA{$mdl_name}} for this model, if it's not already filled
+      # for any gene feature we need to know if there is a 'matching' CDS
+      # where 'matching' means same 5' start position and 3' end position and same 'gene' qualifier attribute
+      # $ftr_gene2cds_HA{$mdl_name}[$ftr_idx] will be the index of this matching CDS, or -1 if none exists or if $ftr_idx is not a gene
+      if(! defined $ftr_gene2cds_HA{$mdl_name}) { 
+        @{$ftr_gene2cds_HA{$mdl_name}} = ();
+        vdr_MapGenesToMatchingCds($ftr_info_AHR, $sgm_info_AHR, \@{$ftr_gene2cds_HA{$mdl_name}}, $FH_HR);
       }
 
       for($ftr_idx = 0; $ftr_idx < $nftr; $ftr_idx++) { 
@@ -9740,7 +9752,19 @@ sub output_feature_table {
             my $ftr_start_non_n_or_x = undef;
             my $ftr_stop_non_n_or_x  = undef;
             if($ftr_is_trimmable) { 
-              my $trim_idx = ($parent_is_cds) ? $parent_ftr_idx : $ftr_idx; # use parent if parent is a cds (e.g. mat_peptides)
+              # determine the ftr_idx we will use for trimming this feature, will usually be itself
+              # but might be a CDS if this feature is a mat_peptide or gene
+              my $trim_idx = undef;
+              if($parent_is_cds) { 
+                $trim_idx = $parent_ftr_idx; # use parent if parent is a cds (e.g. mat_peptides)
+              }
+              elsif((vdr_FeatureTypeIsGene($ftr_info_AHR, $ftr_idx) && 
+                    ($ftr_gene2cds_HA{$mdl_name}[$ftr_idx] != -1))) { 
+                $trim_idx = $ftr_gene2cds_HA{$mdl_name}[$ftr_idx]; # will be $ftr_idx unless there's a matching CDS
+              }
+              else { 
+                $trim_idx = $ftr_idx;
+              }
               my $trim_idx_is_cds = vdr_FeatureTypeIsCds($ftr_info_AHR, $trim_idx);
               $ftr_start_non_n_or_x = ($trim_idx_is_cds) ? $ftr_results_HAHR->{$seq_name}[$trim_idx]{"n_start_non_x"} : $ftr_results_HAHR->{$seq_name}[$trim_idx]{"n_start_non_n"};
               $ftr_stop_non_n_or_x  = ($trim_idx_is_cds) ? $ftr_results_HAHR->{$seq_name}[$trim_idx]{"n_stop_non_x"}  : $ftr_results_HAHR->{$seq_name}[$trim_idx]{"n_stop_non_n"};

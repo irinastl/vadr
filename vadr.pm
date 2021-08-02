@@ -1459,8 +1459,6 @@ sub vdr_FeatureSummarizeSegment {
   return ""; # return "" if $nsgm == 1;
 }
 
-
-
 #################################################################
 # Subroutine: vdr_FeatureStartStopStrandArrays()
 # Incept:     EPN, Sat Mar  9 05:50:10 2019
@@ -1702,6 +1700,74 @@ sub vdr_SegmentStopIdenticalToCds {
       my $sgm_3p_idx = $ftr_info_AHR->[$ftr_idx]{"3p_sgm_idx"};
       my $ftr_stop = $sgm_info_AHR->[$sgm_3p_idx]{"stop"};
       if($ftr_stop == $sgm_stop) { return 1; }
+    }
+  }
+
+  return 0;
+}
+
+#################################################################
+# Subroutine: vdr_MapGenesToMatchingCds()
+# Incept:     EPN, Mon Aug  2 07:14:31 2021
+#
+# Purpose:    For all gene features, check if there is a 'matching' 
+#             CDS defined as:
+#             1. CDS c and gene g have same 5' start position
+#             2. CDS c and gene g have same 3' stop position
+#             3. CDS c and gene g have same 'gene' qualifier value
+#             Fill @{$gene2cds_AR} as follows:
+#             $gene2cds_AR->[$g_ftr_idx] = $c_ftr_idx if a matching c_ftr_idx exists
+#             $gene2cds_AR->[$g_ftr_idx] = -1 if not
+#             $gene2cds_AR->[$ftr_idx]   = -1 if $ftr_idx is not a gene
+# 
+#             If two CDS match a gene, gene2cds_AR->[$g_ftr_idx] will be set to the
+#             CDS with the minimum ftr_idx.
+# 
+# Arguments: 
+#  $ftr_info_AHR:   ref to the feature info array of hashes 
+#  $sgm_info_AHR:   ref to the segment info array of hashes 
+#  $gene2cds_AR:    ref to array of gene2cds to fill
+#  $FH_HR:          ref to hash of file handles, including "log" and "cmd"
+#
+# Returns:    void
+#
+# Dies:       never
+#
+################################################################# 
+sub vdr_MapGenesToMatchingCds { 
+  my $sub_name = "vdr_MapGenesToMatchingCds";
+  my $nargs_exp = 4;
+  if(scalar(@_) != $nargs_exp) { die "ERROR $sub_name entered with wrong number of input args"; }
+  
+  my ($ftr_info_AHR, $sgm_info_AHR, $gene2cds_AR, $FH_HR) = @_;
+  
+  my $nftr = scalar(@{$ftr_info_AHR});
+
+  for(my $ftr_idx = 0; $ftr_idx < $nftr; $ftr_idx++) {
+    $gene2cds_AR->[$ftr_idx] = -1; # initialize, change below if nec
+    if((vdr_FeatureTypeIsGene($ftr_info_AHR, $ftr_idx)) && 
+       (defined $ftr_info_AHR->[$ftr_idx]{"gene"})) { 
+        my $gene_gene_qual  = $ftr_info_AHR->[$ftr_idx]{"gene"};
+        my $gene_sgm_5p_idx = $ftr_info_AHR->[$ftr_idx]{"5p_sgm_idx"};
+        my $gene_sgm_3p_idx = $ftr_info_AHR->[$ftr_idx]{"3p_sgm_idx"};
+        my $gene_start      = $sgm_info_AHR->[$gene_sgm_5p_idx]{"start"};
+        my $gene_stop       = $sgm_info_AHR->[$gene_sgm_3p_idx]{"stop"};
+        for(my $ftr_idx2 = 0; $ftr_idx2 < $nftr; $ftr_idx2++) { 
+          if((vdr_FeatureTypeIsCds($ftr_info_AHR, $ftr_idx2)) && 
+             (defined $ftr_info_AHR->[$ftr_idx2]{"gene"})) { 
+            my $cds_gene_qual  = $ftr_info_AHR->[$ftr_idx2]{"gene"};
+            my $cds_sgm_5p_idx = $ftr_info_AHR->[$ftr_idx2]{"5p_sgm_idx"};
+            my $cds_sgm_3p_idx = $ftr_info_AHR->[$ftr_idx2]{"3p_sgm_idx"};
+            my $cds_start      = $sgm_info_AHR->[$cds_sgm_5p_idx]{"start"};
+            my $cds_stop       = $sgm_info_AHR->[$cds_sgm_3p_idx]{"stop"};
+            if(($gene_gene_qual eq $cds_gene_qual) && 
+               ($gene_start == $cds_start) && 
+               ($gene_stop  == $cds_stop)) { 
+              $gene2cds_AR->[$ftr_idx] = $ftr_idx2;
+              $ftr_idx2 = $nftr; # breaks loop
+            }
+          }
+        }
     }
   }
 
