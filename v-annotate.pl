@@ -9715,7 +9715,7 @@ sub output_feature_table {
           my $feature_type             = $ftr_info_AHR->[$ftr_idx]{"type"}; # type of feature, e.g. 'CDS' or 'mat_peptide' or 'gene'
           my $orig_feature_type        = $feature_type;                     # original feature type ($feature_type could be changed to misc_feature)
           my $is_5trunc_term_or_n_or_x = 0;  # '1' if first segment of this feature is truncated at the 5' end due to sequence terminus or Ns or Xs
-          my $is_3trunc_term_or_n_or_x = 0;  # '1' if final segment of this feature is truncated at the 3' end due to sequence terminus or Ns or Xs
+          my $is_3trunc_term_or_n      = 0;  # '1' if final segment of this feature is truncated at the 3' end due to sequence terminus or Ns or Xs
           my $is_misc_feature          = 0;  # '1' if this feature turns into a misc_feature due to alert(s)
           my $ftr_ftbl_coords_str      = "";    # string of coordinates for this feature
           my $ftr_ftbl_coords_len      = undef; # length of feature, in feature table coords 
@@ -9742,15 +9742,15 @@ sub output_feature_table {
           if(! $defined_n_start) { 
             # $defined_p_qstart must be TRUE
             ($ftr_ftbl_coords_str, $ftr_ftbl_coords_len, $min_coord, 
-             $is_5trunc_term_or_n_or_x, $is_3trunc_term_or_n_or_x) =
+             $is_5trunc_term_or_n_or_x, $is_3trunc_term_or_n) =
                  helper_ftable_coords_prot_only_prediction($seq_name, $ftr_idx, $ftr_results_HAHR, $FH_HR);
             # note: $is_5trunc_term_or_n_or_x will always be 0, we don't try to do truncations for protein only predictions
-            # note: $is_3trunc_term_or_n_or_x will alwyas be 0, we don't try to do truncations for protein only predictions
+            # note: $is_3trunc_term_or_n      will alwyas be 0, we don't try to do truncations for protein only predictions
           }
           else { # $defined_n_start is '1'
-            # fill $ftr_start_non_n and $ftr_stop_non_n if this feature may be trimmed due to N 
+            # fill $ftr_start_non_n_or_x and $ftr_stop_non_n if this feature may be trimmed due to N/Xs
             my $ftr_start_non_n_or_x = undef;
-            my $ftr_stop_non_n_or_x  = undef;
+            my $ftr_stop_non_n       = undef;
             if($ftr_is_trimmable) { 
               # determine the ftr_idx we will use for trimming this feature, will usually be itself
               # but might be a CDS if this feature is a mat_peptide or gene
@@ -9767,13 +9767,17 @@ sub output_feature_table {
               }
               my $trim_idx_is_cds = vdr_FeatureTypeIsCds($ftr_info_AHR, $trim_idx);
               $ftr_start_non_n_or_x = ($trim_idx_is_cds) ? $ftr_results_HAHR->{$seq_name}[$trim_idx]{"n_start_non_x"} : $ftr_results_HAHR->{$seq_name}[$trim_idx]{"n_start_non_n"};
-              $ftr_stop_non_n_or_x  = ($trim_idx_is_cds) ? $ftr_results_HAHR->{$seq_name}[$trim_idx]{"n_stop_non_x"}  : $ftr_results_HAHR->{$seq_name}[$trim_idx]{"n_stop_non_n"};
-              #printf("set ftr_start_non_n_or_x for ftr: $ftr_idx based on trim_idx: $trim_idx to %s\n", (defined $ftr_start_non_n_or_x) ? $ftr_start_non_n : "undef");
-              #printf("set ftr_stop_non_n_or_x  for ftr: $ftr_idx based on trim_idx: $trim_idx to %s\n", (defined $ftr_stop_non_n_or_x)  ? $ftr_stop_non_n : "undef");
+              $ftr_stop_non_n       = $ftr_results_HAHR->{$seq_name}[$trim_idx]{"n_stop_non_n"}; # 3' end can be an X
+              # special case, if trim_idx_is_cds and $ftr_start_non_n_or_x is -1, this means entire feature 
+              # is Ns or translates to X, so we have to make sure $ftr_non_stop_n is also set to -1 even if
+              # it isn't all Ns (i.e. but translates to all X) for downstream assumptions to hold
+              if($ftr_start_non_n_or_x == -1) { $ftr_stop_non_n = -1; }
+              #printf("set ftr_start_non_n_or_x for ftr: $ftr_idx based on trim_idx: $trim_idx to %s\n", (defined $ftr_start_non_n_or_x) ? $ftr_start_non_n_or_x : "undef");
+              #printf("set ftr_stop_non_n       for ftr: $ftr_idx based on trim_idx: $trim_idx to %s\n", $ftr_stop_non_n);
             }
             ($ftr_ftbl_coords_str, $ftr_ftbl_coords_len, $min_coord, 
-             $is_5trunc_term_or_n_or_x, $is_3trunc_term_or_n_or_x) = 
-                 helper_ftable_coords_from_nt_prediction($seq_name, $ftr_idx, $ftr_start_non_n_or_x, $ftr_stop_non_n_or_x, 
+             $is_5trunc_term_or_n_or_x, $is_3trunc_term_or_n) = 
+                 helper_ftable_coords_from_nt_prediction($seq_name, $ftr_idx, $ftr_start_non_n_or_x, $ftr_stop_non_n, 
                                                          $ftr_info_AHR, \%{$sgm_results_HHAHR->{$mdl_name}}, $FH_HR);
           }
           if($ftr_ftbl_coords_str ne "") { # if $ftr_ftbl_coords_str is "", we won't output the feature because it was entirely Ns or translates to all Xs
@@ -9902,7 +9906,7 @@ sub output_feature_table {
             # push to the output hash
             %{$ftout_AH[$ftidx]} = ();
             $ftout_AH[$ftidx]{"5trunc_term_or_n_or_x"} = ($is_5trunc_term_or_n_or_x) ? 1 : 0;
-            $ftout_AH[$ftidx]{"3trunc_term_or_n_or_x"} = ($is_3trunc_term_or_n_or_x) ? 1 : 0;
+            $ftout_AH[$ftidx]{"3trunc_term_or_n"}      = ($is_3trunc_term_or_n)      ? 1 : 0;
             $ftout_AH[$ftidx]{"mincoord"}              = $min_coord;
             $ftout_AH[$ftidx]{"type_priority"}         = (exists $type_priority_H{$orig_feature_type}) ? $type_priority_H{$orig_feature_type} : $npriority;
             $ftout_AH[$ftidx]{"coords"}                = $ftr_ftbl_coords_str;
@@ -9952,15 +9956,15 @@ sub output_feature_table {
           my $is_mp   = vdr_FeatureTypeIsMatPeptide($ftr_info_AHR, $ftr_idx) ? 1 : 0;
           my $parent_ftr_idx = vdr_FeatureParentIndex($ftr_info_AHR, $ftr_idx); # will be -1 if no parent
           if($is_cds) {
-            my $ftr_ftidx                = $ftr_idx2ftout_idx_H{$ftr_idx};
-            my $ftbl_len                 = $ftout_AH[$ftr_ftidx]{"ftbl_len"};
-            my $is_3trunc_term_or_n_or_x = $ftout_AH[$ftr_ftidx]{"3trunc_term_or_n_or_x"}; # 3' truncated due to sequence terminus and/or Ns and/or Xs
+            my $ftr_ftidx           = $ftr_idx2ftout_idx_H{$ftr_idx};
+            my $ftbl_len            = $ftout_AH[$ftr_ftidx]{"ftbl_len"};
+            my $is_3trunc_term_or_n = $ftout_AH[$ftr_ftidx]{"3trunc_term_or_n"}; # 3' truncated due to sequence terminus and/or Ns and/or Xs
             my $codon_start              = $ftout_AH[$ftr_ftidx]{"codon_start"};
             # is it too short? 4 cases:
             if(($ftbl_len < 3)                            || # less than 1 AA, regardless of frame
                (($ftbl_len == 3) && ($codon_start != 1))  || # less than 1 AA, frame 2 or 3
                (($ftbl_len == 4) && ($codon_start == 3))  || # less than 1 AA, frame 3
-               (($ftbl_len <= 5) && (! $is_3trunc_term_or_n_or_x))) { # only a stop codon
+               (($ftbl_len <= 5) && (! $is_3trunc_term_or_n))) { # only a stop codon
               $remove_me_A[$ftidx] = 1;
             }
           }
@@ -10135,7 +10139,7 @@ sub output_feature_table {
 #  $seq_name:          sequence name
 #  $ftr_idx:           feature index
 #  $start_non_n_or_x:  first position of feature that is not an N and doesn't translate to X
-#  $stop_non_n_or_x:   final position of feature that is not an N and doesn't translate to X
+#  $stop_non_n:        final position of feature that is not an N (but may translate to X)
 #  $ret_min_coord:     REF to minimum coordinate, to fill
 #  $ftr_info_AHR:      REF to array of hashes with information on the features, PRE-FILLED
 #  $sgm_results_HAHR:  REF to segment results HAH, PRE-FILLED
@@ -10146,7 +10150,7 @@ sub output_feature_table {
 #                                   "" if entire feature is Ns, in this case we won't output it to feature table
 #             $ftr_ftbl_coords_len: length in nt of feature in output coords for feature table
 #             $min_coord:           minimum coordinate for feature
-#             $is_5trunc:           '1' if first segment is truncated on 5' end due to sequence terminus or Ns
+#             $is_5trunc:           '1' if first segment is truncated on 5' end due to sequence terminus or Ns or Xs
 #             $is_3trunc:           '1' if final segment is truncated on 3' end due to sequence terminus or Ns
 #
 # Dies: if either @{$start_AR} or @{$stop_AR} are empty
@@ -10158,7 +10162,7 @@ sub helper_ftable_coords_from_nt_prediction {
   my $nargs_exp = 7;
   if(scalar(@_) != $nargs_exp) { die "ERROR $sub_name entered with wrong number of input args"; }
 
-  my ($seq_name, $ftr_idx, $start_non_n_or_x, $stop_non_n_or_x, $ftr_info_AHR, $sgm_results_HAHR, $FH_HR) = @_;
+  my ($seq_name, $ftr_idx, $start_non_n_or_x, $stop_non_n, $ftr_info_AHR, $sgm_results_HAHR, $FH_HR) = @_;
 
   # arrays with per-sgm info
   my @start_A     = ();
@@ -10177,7 +10181,7 @@ sub helper_ftable_coords_from_nt_prediction {
     }
   }
   return helper_ftable_start_stop_strand_arrays_to_coords(\@start_A, \@stop_A, \@strand_A, \@is_5trunc_A, \@is_3trunc_A, 
-                                                          $start_non_n_or_x, $stop_non_n_or_x, $FH_HR);
+                                                          $start_non_n_or_x, $stop_non_n, $FH_HR);
 }
 
 #################################################################
@@ -10243,7 +10247,7 @@ sub helper_ftable_coords_prot_only_prediction {
 #  $is_5trunc_AR:       REF to array of is_5trunc values, one per sgm
 #  $is_3trunc_AR:       REF to array of is_3trunc values, one per sgm
 #  $start_non_n_or_x:   first position of feature that is not an N and doesn't translate to an X (may be > $stop_non_n)
-#  $stop_non_n_or_x:    final position of feature that is not an N and doesn't translate to an X (may be < $start_non_n)
+#  $stop_non_n:         final position of feature that is not an N (but may translate to an X) (may be < $start_non_n)
 #  $FH_HR:              REF to hash of file handles
 #
 # Returns:    Five values:
@@ -10263,7 +10267,7 @@ sub helper_ftable_start_stop_strand_arrays_to_coords {
   my $nargs_exp = 8;
   if(scalar(@_) != $nargs_exp) { die "ERROR $sub_name entered with wrong number of input args"; }
 
-  my ($start_AR, $stop_AR, $strand_AR, $is_5trunc_AR, $is_3trunc_AR, $start_non_n, $stop_non_n, $FH_HR) = @_;
+  my ($start_AR, $stop_AR, $strand_AR, $is_5trunc_AR, $is_3trunc_AR, $start_non_n_or_x, $stop_non_n, $FH_HR) = @_;
 
   # return values
   my $ret_ftr_ftbl_coords_str = "";
@@ -10278,8 +10282,8 @@ sub helper_ftable_start_stop_strand_arrays_to_coords {
   }
 
   my ($min_non_n, $max_non_n) = (undef, undef);
-  if((defined $start_non_n) && (defined $stop_non_n)) { 
-    ($min_non_n, $max_non_n) = ($start_non_n, $stop_non_n);
+  if((defined $start_non_n_or_x) && (defined $stop_non_n)) { 
+    ($min_non_n, $max_non_n) = ($start_non_n_or_x, $stop_non_n);
     if($min_non_n > $max_non_n) { utl_Swap(\$min_non_n, \$max_non_n); }
   }
 
@@ -10292,20 +10296,20 @@ sub helper_ftable_start_stop_strand_arrays_to_coords {
     my $is_5trunc_term = $is_5trunc_AR->[$c]; # segment is 5' truncated due to sequence terminus
     my $is_3trunc_term = $is_3trunc_AR->[$c]; # segment is 3' truncated due to sequence terminus
 
-    # potentially modify start/stop based on $start_non_n and $stop_non_n
+    # potentially modify start/stop based on $start_non_n_or_x and $stop_non_n
     my $is_5trunc_n = 0; # set to 1 below if start position is truncated due to Ns
     my $is_3trunc_n = 0; # set to 1 below if stop  position is truncated due to Ns
     my $add_this_sgm = 1; # set to 0 below if full sgm is Ns, in which case we don't add it
 
-    if((defined $start_non_n) && (defined $stop_non_n)) { 
-      if($start_non_n == -1) { # this means entire segment is Ns
+    if((defined $start_non_n_or_x) && (defined $stop_non_n)) { 
+      if($start_non_n_or_x == -1) { # this means entire segment is Ns or Xs
         if($stop_non_n != -1) { # sanity check 
-          ofile_FAIL("ERROR, in $sub_name, start_non_n is -1 but stop_non_n is not ($stop_non_n)", 1, $FH_HR);
+          ofile_FAIL("ERROR, in $sub_name, start_non_n_or_x is -1 but stop_non_n is not ($stop_non_n)", 1, $FH_HR);
         }
         $add_this_sgm = 0;
       }
       else { 
-        # get min/max between start/stop and start_non_n/stop_non_n 
+        # get min/max between start/stop and start_non_n_or_x/stop_non_n 
         # to make the following complicated checks of cases a little less complicated
         my ($min, $max) = ($start, $stop);
         if($min > $max) { utl_Swap(\$min, \$max); }
