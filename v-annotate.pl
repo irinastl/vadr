@@ -3926,7 +3926,7 @@ sub parse_stk_and_add_alignment_cds_and_mp_alerts {
   my $sub_name = "parse_stk_and_add_alignment_cds_and_mp_alerts()";
   my $nargs_exp = 26;
   if(scalar(@_) != $nargs_exp) { die "ERROR $sub_name entered with wrong number of input args"; }
-  
+
   my ($stk_file, $in_sqfile_R, $mdl_tt, $seq_len_HR, $seq_inserts_HHR, $seq_idx_HR, $sgm_info_AHR, 
       $ftr_info_AHR, $alt_info_HHR, $stg_results_HHHR, $sgm_results_HAHR, $ftr_results_HAHR, 
       $alt_seq_instances_HHR, $alt_ftr_instances_HHHR, $dcr_output_HAHR, 
@@ -5518,13 +5518,13 @@ sub fetch_features_and_add_cds_and_mp_alerts_for_one_sequence {
         my $orf_fa_file    = $out_root . "." . $mdl_name . "." . $seq_idx . "." . $ftr_fileroot_AR->[$ftr_idx] . ".x.orf.fa";
         my $cds_fa_file_pv = $out_root . "." . $mdl_name . "." . $seq_idx . "." . $ftr_fileroot_AR->[$ftr_idx] . ".x.cds.pv.fa";
         my $orf_fa_file_pv = $out_root . "." . $mdl_name . "." . $seq_idx . "." . $ftr_fileroot_AR->[$ftr_idx] . ".x.orf.pv.fa";
-        if(! defined $ftr_results_HR->{"n_codon_start"}) { 
+        if(! defined $ftr_results_HR->{"n_codon_start_dominant"}) { 
           ofile_FAIL("ERROR in $sub_name, sequence $seq_name CDS feature (ftr_idx: $ftr_idx) has no codon_start info", 1, $FH_HR);
         }
         ($ftr_5xlen, $ftr_3xlen, $ftr_start_non_x, $ftr_stop_non_x) = 
             determine_terminal_Xs_if_necessary_by_translating($execs_HR->{"esl-translate"}, 
                                                               $ftr_sqstring_alt, $ftr_5nlen, $ftr_3nlen, 
-                                                              $ftr_seq_name, $ftr_scoords, $ftr_results_HR->{"n_codon_start"},
+                                                              $ftr_seq_name, $ftr_scoords, $ftr_results_HR->{"n_codon_start_dominant"},
                                                               $mdl_tt, $cds_fa_file, $orf_fa_file, $opt_HHR, $ofile_info_HHR);
         if(! defined $ftr_start_non_x) { $ftr_start_non_x = $ftr_start_non_n; } # no Xs at start
         if(! defined $ftr_stop_non_x)  { $ftr_stop_non_x  = $ftr_stop_non_n; }  # no Xs at end
@@ -5532,7 +5532,7 @@ sub fetch_features_and_add_cds_and_mp_alerts_for_one_sequence {
         ($ftr_5xlen_pv, $ftr_3xlen_pv, $ftr_start_non_x_pv, $ftr_stop_non_x_pv) = 
             determine_terminal_Xs_if_necessary_by_translating($execs_HR->{"esl-translate"}, 
                                                               $ftr_sqstring_pv, $ftr_5nlen_pv, $ftr_3nlen_pv,
-                                                              $ftr_seq_name,  $ftr_scoords, $ftr_results_HR->{"n_codon_start"}, 
+                                                              $ftr_seq_name,  $ftr_scoords, $ftr_results_HR->{"n_codon_start_dominant"}, 
                                                               $mdl_tt, $cds_fa_file_pv, $orf_fa_file_pv, $opt_HHR, $ofile_info_HHR);
         if(! defined $ftr_start_non_x_pv) { $ftr_start_non_x_pv = $ftr_start_non_n_pv; } # no Xs at start
         if(! defined $ftr_stop_non_x_pv)  { $ftr_stop_non_x_pv  = $ftr_stop_non_n_pv; }  # no Xs at end
@@ -5666,7 +5666,7 @@ sub fetch_features_and_add_cds_and_mp_alerts_for_one_sequence {
                     # there is an in-frame stop codon, mutendex alert
                     # determine what position it is
                     $ftr_stop_c = ($ftr_strand eq "+") ? ($ext_sqstring_start + ($ext_nxt_stp_A[1] - 1)) : ($ext_sqstring_start - ($ext_nxt_stp_A[1] - 1));
-
+                    
                     if((! defined $alt_str_H{"ambgnt3c"}) && (defined $ftr_3xlen) && ($ftr_3xlen == 0)) { # report it only if !ambgnt3c and ftr_3xlen == 0
                       if($ftr_strand eq "+") { 
                         $alt_scoords  = "seq:" . vdr_CoordsSegmentCreate($ftr_stop_c-2, $ftr_stop_c, $ftr_strand, $FH_HR) . ";";
@@ -5688,7 +5688,6 @@ sub fetch_features_and_add_cds_and_mp_alerts_for_one_sequence {
                   # either way, we have a mutendns alert:
                   $ftr_stop_c = "?"; # special case, we don't know where the stop is, but we know it's not $ftr_stop;
                   if((! defined $alt_str_H{"ambgnt3c"}) && (defined $ftr_3xlen) && ($ftr_3xlen == 0)) { # report it only if !ambgnt3c and ftr_3xlen == 0
-                  if(! defined $alt_str_H{"ambgnt3c"}) { # report it only if !ambgnt3c
                     $ftr_stop_c = "?"; # special case, we don't know where the stop is, but we know it's not $ftr_stop;
                     # we don't provide scoords or mcoords for this alert
                     $alt_str_H{"mutendns"} = "VADRNULL";
@@ -5715,10 +5714,10 @@ sub fetch_features_and_add_cds_and_mp_alerts_for_one_sequence {
                 $alt_str_H{"cdsstopn"} = sprintf("%s%s%s, shifted S:%d,M:%d", $alt_scoords, $alt_mcoords, $alt_codon, abs($ftr_stop-$ftr_stop_c), abs(abs($ua2rf_AR->[$ftr_stop]) - abs($ua2rf_AR->[$ftr_stop_c])));
               } # end of 'elsif($ftr_nxt_stp_A[1] != 0)'
             } # end of 'if($ftr_nxt_stp_A[1] != $ftr_len_stops) {' 
-          } # end of big if entered if CDS is not truncated or dominant frame and firstpos frame are identical
+          } # end of big if entered if CDS is not 5' truncated or dominant frame and firstpos frame are identical
         } # end of 'if($ftr_len_stops >= 3)'
       } # end of 'if($ftr_is_cds) {' 
-    
+      
       # actually add the alerts
       foreach my $alt_code (sort keys %alt_str_H) { 
         alert_feature_instance_add($alt_ftr_instances_HHHR, $alt_info_HHR, $alt_code, $seq_name, $ftr_idx, $alt_str_H{$alt_code}, $FH_HR);
