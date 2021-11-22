@@ -13426,7 +13426,8 @@ sub determine_terminal_Xs_if_necessary_by_translating {
   } # end of 'if($cds_len > $cds_5nlen)'
 
   return ($cds_5xlen, $cds_3xlen, $cds_start_non_x, $cds_stop_non_x);
-=======
+}
+
 # Subroutine: pick_features_from_all_alternatives()
 # Incept:     EPN, Wed Oct 13 12:00:26 2021
 # Purpose:    For features that have a non-empty 'alternative_ftr_set'
