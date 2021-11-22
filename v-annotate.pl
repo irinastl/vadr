@@ -62,15 +62,14 @@ require "sqp_utils.pm";
 # Seeded alignment for faster processing (originally developed for
 # SARS-CoV-2 sequences), enabled with the -s option:
 #
-# Stage 1 and 2 are performed by a single blastn search instead of
-# two rounds of cmsearch. The maximum lengthed ungapped region
-# from the top blast hit per sequence is identified and used to 'seed'
-# the alignment of that sequence by cmalign. The ungapped alignment of
-# this seed blastn region is considered fixed and only the sequence
-# before and after it (plus 100nt of overlap on each side,
-# controllable with --s_overhang) is aligned separately by
-# cmalign. The up to three alignments are then joined to get the final
-# alignment.
+# Stage 1 and 2 are performed by a single blastn search instead of two
+# rounds of cmsearch.  The top scoring HSP is identified and used
+# (after potentially trimming) to 'seed' the alignment of that
+# sequence by cmalign. This blastn alignmetn seed region is considered
+# fixed and only the sequence before and after it (plus 100nt of
+# overlap on each side, controllable with --s_overhang) is aligned
+# separately by cmalign. The up to three alignments are then joined to
+# get the final alignment.
 #
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # 
@@ -114,7 +113,7 @@ require "sqp_utils.pm";
 #     unexdivg (1)
 #
 #  4. parse_stk_and_add_alignment_cds_and_mp_alerts()
-#     indf5gap, indf5lcc, indf5lcn, indf3gap, indf3lcc, indf3lcn, deletinf, deletins (8)
+#     indf5gap, indf5lcc, indf5lcn, indf3gap, indf3lcc, indf3lcn, deletinf, deletins, deletina (9)
 #
 #  5. fetch_features_and_add_cds_and_mp_alerts_for_one_sequence()
 #     mutstart, unexleng, mutendcd, mutendex, mutendns, cdsstopn, ambgnt5c, ambgnt3c, ambgnt5f, ambgnt3f (10)
@@ -221,7 +220,13 @@ opt_Add("--alt_pass",      "string",  undef,     $g,     undef, undef,         "
 opt_Add("--alt_fail",      "string",  undef,     $g,     undef, undef,         "specify that alert codes in <s> cause FAILure",                                              "specify that alert codes in comma-separated <s> do cause FAILure",     \%opt_HH, \@opt_order_A);
 opt_Add("--alt_mnf_yes",   "string",  undef,     $g,     undef,"--ignore_mnf", "alert codes in <s> for 'misc_not_failure' features cause misc_feature-ization, not failure", "alert codes in <s> for 'misc_not_failure' features cause misc_feature-ization, not failure", \%opt_HH, \@opt_order_A);
 opt_Add("--alt_mnf_no",    "string",  undef,     $g,     undef,"--ignore_mnf", "alert codes in <s> for 'misc_not_failure' features cause failure, not misc_feature-ization", "alert codes in <s> for 'misc_not_failure' features cause failure, not misc-feature-ization", \%opt_HH, \@opt_order_A);
-opt_Add("--ignore_mnf",   "boolean",  0,         $g,     undef, undef,         "ignore non-zero 'misc_not_failure' values in .minfo file, set to 0 for all features/models", "ignore non-zero 'misc_not_feature' values in .minfo file, set to 0 for all features/models", \%opt_HH, \@opt_order_A);
+
+$opt_group_desc_H{++$g} = "options for ignoring specific keys in the input model info (.minfo) file";
+#        option               type        default  group requires incompat  preamble-output                                                                               help-output    
+opt_Add("--ignore_mnf",       "boolean",  0,       $g,     undef, undef,    "ignore non-zero 'misc_not_failure' values in .minfo file, set to 0 for all features/models", "ignore non-zero 'misc_not_feature' values in .minfo file, set to 0 for all features/models", \%opt_HH, \@opt_order_A);
+opt_Add("--ignore_isdel",     "boolean",  0,       $g,     undef, undef,    "ignore non-zero 'is_deletable' values in .minfo file, set to 0 for all features/models",     "ignore non-zero 'is_deletable' values in .minfo file, set to 0 for all features/models", \%opt_HH, \@opt_order_A);
+opt_Add("--ignore_afset",     "boolean",  0,       $g,     undef, undef,    "ignore 'alternative_ftr_set' and 'alternative_ftr_set_subn' values in .minfo file",          "ignore 'alternative_ftr_set' and 'alternative_ftr_set_subn' values in .minfo file", \%opt_HH, \@opt_order_A);
+opt_Add("--ignore_afsetsubn", "boolean",  0,       $g,     undef, undef,    "ignore 'alternative_ftr_set_subn' values in .minfo file",                                    "ignore 'alternative_ftr_set_subn' values in .minfo file", \%opt_HH, \@opt_order_A);
 
 $opt_group_desc_H{++$g} = "options related to model files";
 #        option               type default  group  requires incompat   preamble-output                                                                   help-output    
@@ -305,20 +310,22 @@ opt_Add("--h_max",    "boolean", 0,        $g, "--pv_hmmer",  "--pv_skip", "use 
 opt_Add("--h_minbit", "real",    -10,      $g, "--pv_hmmer",  "--pv_skip", "set minimum hmmsearch bit score threshold to <x>", "set minimum hmmsearch bit score threshold to <x>", \%opt_HH, \@opt_order_A);
 
 $opt_group_desc_H{++$g} = "options related to blastn-derived seeded alignment acceleration";
-#        option               type   default group   requires  incompat        preamble-output                                                      help-output    
-opt_Add("-s",             "boolean",      0,   $g,      undef, undef,          "use max length ungapped region from blastn to seed the alignment",  "use the max length ungapped region from blastn to seed the alignment", \%opt_HH, \@opt_order_A);
-opt_Add("--s_blastnws",   "integer",      7,   $g,       "-s", undef,          "for -s, set blastn -word_size <n> to <n>",                          "for -s, set blastn -word_size <n> to <n>", \%opt_HH, \@opt_order_A);
-opt_Add("--s_blastnrw",   "integer",      1,   $g,       "-s", undef,          "for -s, set blastn -reward <n> to <n>",                             "for -s, set blastn -reward <n> to <n>", \%opt_HH, \@opt_order_A);
-opt_Add("--s_blastnpn",   "integer",     -2,   $g,       "-s", undef,          "for -s, set blastn -penalty <n> to <n>",                            "for -s, set blastn -penalty <n> to <n>", \%opt_HH, \@opt_order_A);
-opt_Add("--s_blastngo",   "integer",      0,   $g,       "-s", undef,          "for -s, set blastn -gapopen <n> to <n>",                            "for -s, set blastn -gapopen <n> to <n>", \%opt_HH, \@opt_order_A);
-opt_Add("--s_blastnge",   "real",      -2.5,   $g,       "-s", undef,          "for -s, set blastn -gapextend <x> to <x>",                          "for -s, set blastn -gapextend <x> to <x>", \%opt_HH, \@opt_order_A);
-opt_Add("--s_blastnsc",   "real",      50.0,   $g,       "-s", undef,          "for -s, set blastn minimum HSP score to consider to <x>",           "for -s, set blastn minimum HSP score to consider to <x>", \%opt_HH, \@opt_order_A);
-opt_Add("--s_blastntk",   "boolean",      0,   $g,       "-s", undef,          "for -s, set blastn option -task blastn",                            "for -s, set blastn option -task blastn", \%opt_HH, \@opt_order_A);
-opt_Add("--s_minsgmlen",  "integer",     10,   $g,       "-s", undef,          "for -s, set minimum length of ungapped region in HSP seed to <n>",  "for -s, set minimum length of ungapped region in HSP seed to <n>", \%opt_HH, \@opt_order_A);
-opt_Add("--s_allsgm",     "boolean",      0,   $g,       "-s", "--s_minsgmlen", "for -s, keep full HSP seed, do not enforce minimum segment length", "for -s, keep full HSP seed, do not enforce minimum segment length", \%opt_HH, \@opt_order_A);
-opt_Add("--s_ungapsgm",   "boolean",      0,   $g,       "-s", "--s_minsgmlen,--s_allsgm", "for -s, only keep max length ungapped segment of HSP",   "for -s, only keep max length ungapped segment of HSP", \%opt_HH, \@opt_order_A);
-opt_Add("--s_startstop",  "boolean",      0,   $g,       "-s", "--s_ungapsgm", "for -s, allow seed to include gaps in start/stop codons",           "for -s, allow seed to include gaps in start/stop codons", \%opt_HH, \@opt_order_A);
-opt_Add("--s_overhang",   "integer",    100,   $g,       "-s", undef,          "for -s, set length of nt overhang for subseqs to align to <n>",     "for -s, set length of nt overhang for subseqs to align to <n>", \%opt_HH, \@opt_order_A);
+#        option               type   default group   requires  incompat        preamble-output                                                        help-output    
+opt_Add("-s",             "boolean",      0,   $g,      undef, undef,          "use top-scoring HSP from blastn to seed the alignment",               "use top-scoring HSP from blastn to seed the alignment", \%opt_HH, \@opt_order_A);
+opt_Add("--s_blastnws",   "integer",      7,   $g,       "-s", undef,          "for -s, set blastn -word_size <n> to <n>",                            "for -s, set blastn -word_size <n> to <n>", \%opt_HH, \@opt_order_A);
+opt_Add("--s_blastnrw",   "integer",      1,   $g,       "-s", undef,          "for -s, set blastn -reward <n> to <n>",                               "for -s, set blastn -reward <n> to <n>", \%opt_HH, \@opt_order_A);
+opt_Add("--s_blastnpn",   "integer",     -2,   $g,       "-s", undef,          "for -s, set blastn -penalty <n> to <n>",                              "for -s, set blastn -penalty <n> to <n>", \%opt_HH, \@opt_order_A);
+opt_Add("--s_blastngo",   "integer",      2,   $g,       "-s","--s_blastngdf", "for -s, set blastn -gapopen <n> to <n>",                              "for -s, set blastn -gapopen <n> to <n>", \%opt_HH, \@opt_order_A);
+opt_Add("--s_blastnge",   "real",         1,   $g,       "-s","--s_blastngdf", "for -s, set blastn -gapextend <x> to <x>",                            "for -s, set blastn -gapextend <x> to <x>", \%opt_HH, \@opt_order_A);
+opt_Add("--s_blastngdf",  "boolean",      0,   $g,       "-s", undef,          "for -s, don't use -gapopen/-gapextend w/blastn (use default values)", "for -s, don't use -gapopen/-gapextend w/blastn (use default values)", \%opt_HH, \@opt_order_A);
+opt_Add("--s_blastnsc",   "real",      50.0,   $g,       "-s", undef,          "for -s, set blastn minimum HSP score to consider to <x>",             "for -s, set blastn minimum HSP score to consider to <x>", \%opt_HH, \@opt_order_A);
+opt_Add("--s_blastntk",   "boolean",      0,   $g,       "-s", undef,          "for -s, set blastn option -task blastn",                              "for -s, set blastn option -task blastn", \%opt_HH, \@opt_order_A);
+opt_Add("--s_blastnxd",   "integer",    110,   $g,       "-s", undef,          "for -s, set blastn option -xdrop_gap_final <n> to <n>",               "for -s, set blastn -xdrop_gap_final <n> to <n>", \%opt_HH, \@opt_order_A);
+opt_Add("--s_minsgmlen",  "integer",     10,   $g,       "-s", undef,          "for -s, set minimum length of ungapped region in HSP seed to <n>",    "for -s, set minimum length of ungapped region in HSP seed to <n>", \%opt_HH, \@opt_order_A);
+opt_Add("--s_allsgm",     "boolean",      0,   $g,       "-s", "--s_minsgmlen", "for -s, keep full HSP seed, do not enforce minimum segment length",  "for -s, keep full HSP seed, do not enforce minimum segment length", \%opt_HH, \@opt_order_A);
+opt_Add("--s_ungapsgm",   "boolean",      0,   $g,       "-s", "--s_minsgmlen,--s_allsgm", "for -s, only keep max length ungapped segment of HSP",    "for -s, only keep max length ungapped segment of HSP", \%opt_HH, \@opt_order_A);
+opt_Add("--s_startstop",  "boolean",      0,   $g,       "-s", "--s_ungapsgm", "for -s, allow seed to include gaps in start/stop codons",             "for -s, allow seed to include gaps in start/stop codons", \%opt_HH, \@opt_order_A);
+opt_Add("--s_overhang",   "integer",    100,   $g,       "-s", undef,          "for -s, set length of nt overhang for subseqs to align to <n>",       "for -s, set length of nt overhang for subseqs to align to <n>", \%opt_HH, \@opt_order_A);
 
 $opt_group_desc_H{++$g} = "options related to replacing Ns with expected nucleotides";
 #        option               type   default group requires incompat  preamble-output                                                              help-output    
@@ -395,12 +402,15 @@ my $options_okay =
                 'group=s'       => \$GetOptions_H{"--group"},
                 'subgroup=s'    => \$GetOptions_H{"--subgroup"},
 # options for controlling which alerts cause failure
-                "alt_list"      => \$GetOptions_H{"--alt_list"},
-                "alt_pass=s"    => \$GetOptions_H{"--alt_pass"},
-                "alt_fail=s"    => \$GetOptions_H{"--alt_fail"},
-                "alt_mnf_yes=s" => \$GetOptions_H{"--alt_mnf_yes"},
-                "alt_mnf_no=s"  => \$GetOptions_H{"--alt_mnf_no"},
-                "ignore_mnf"    => \$GetOptions_H{"--ignore_mnf"},
+                "alt_list"         => \$GetOptions_H{"--alt_list"},
+                "alt_pass=s"       => \$GetOptions_H{"--alt_pass"},
+                "alt_fail=s"       => \$GetOptions_H{"--alt_fail"},
+                "alt_mnf_yes=s"    => \$GetOptions_H{"--alt_mnf_yes"},
+                "alt_mnf_no=s"     => \$GetOptions_H{"--alt_mnf_no"},
+                "ignore_mnf"       => \$GetOptions_H{"--ignore_mnf"},
+                "ignore_isdel"     => \$GetOptions_H{"--ignore_isdel"},
+                "ignore_afset"     => \$GetOptions_H{"--ignore_afset"},
+                "ignore_afsetsubn" => \$GetOptions_H{"--ignore_afsetsubn"},
 # options related to model files
                 'm=s'           => \$GetOptions_H{"-m"}, 
                 'a=s'           => \$GetOptions_H{"-a"}, 
@@ -475,8 +485,10 @@ my $options_okay =
                 's_blastnpn=s'  => \$GetOptions_H{"--s_blastnpn"},
                 's_blastngo=s'  => \$GetOptions_H{"--s_blastngo"},
                 's_blastnge=s'  => \$GetOptions_H{"--s_blastnge"},
+                's_blastngdf'   => \$GetOptions_H{"--s_blastngdf"},
                 's_blastnsc=s'  => \$GetOptions_H{"--s_blastnsc"},
                 's_blastntk'    => \$GetOptions_H{"--s_blastntk"},
+                's_blastnxd=s'  => \$GetOptions_H{"--s_blastnxd"},
                 's_minsgmlen=s' => \$GetOptions_H{"--s_minsgmlen"},
                 's_allsgm'      => \$GetOptions_H{"--s_allsgm"},
                 's_ungapsgm'    => \$GetOptions_H{"--s_ungapsgm"},
@@ -536,8 +548,8 @@ my $executable    = (defined $execname_opt) ? $execname_opt : "v-annotate.pl";
 my $usage         = "Usage: $executable [-options] <fasta file to annotate> <output directory to create>\n";
 my $synopsis      = "$executable :: classify and annotate sequences using a model library";
 my $date          = scalar localtime();
-my $version       = "1.3";
-my $releasedate   = "Aug 2021";
+my $version       = "1.3dev3";
+my $releasedate   = "Oct 2021";
 my $pkgname       = "VADR";
 
 # make *STDOUT file handle 'hot' so it automatically flushes whenever we print to it
@@ -985,7 +997,13 @@ for(my $mdl_idx = 0; $mdl_idx < $nmdl; $mdl_idx++) {
   vdr_FeatureInfoImpute3paFtrIdx(\@{$ftr_info_HAH{$mdl_name}}, $FH_HR);
   vdr_FeatureInfoImputeOutname(\@{$ftr_info_HAH{$mdl_name}});
   vdr_FeatureInfoInitializeMiscNotFailure(\@{$ftr_info_HAH{$mdl_name}}, opt_Get("--ignore_mnf", \%opt_HH), $FH_HR);
+  vdr_FeatureInfoInitializeIsDeletable(\@{$ftr_info_HAH{$mdl_name}}, opt_Get("--ignore_isdel", \%opt_HH), $FH_HR);
+  vdr_FeatureInfoInitializeAlternativeFeatureSet(\@{$ftr_info_HAH{$mdl_name}}, opt_Get("--ignore_afset", \%opt_HH), $FH_HR);
+  vdr_FeatureInfoInitializeAlternativeFeatureSetSubstitution(\@{$ftr_info_HAH{$mdl_name}}, (opt_Get("--ignore_afset", \%opt_HH) || opt_Get("--ignore_afsetsubn", \%opt_HH)), $FH_HR);
   vdr_FeatureInfoValidateMiscNotFailure(\@{$ftr_info_HAH{$mdl_name}}, $FH_HR);
+  vdr_FeatureInfoValidateIsDeletable(\@{$ftr_info_HAH{$mdl_name}}, $FH_HR);
+  vdr_FeatureInfoValidateAlternativeFeatureSet(\@{$ftr_info_HAH{$mdl_name}}, $FH_HR);
+  vdr_FeatureInfoValidateAlternativeFeatureSetSubstitution(\@{$ftr_info_HAH{$mdl_name}}, $FH_HR);
   vdr_SegmentInfoPopulate(\@{$sgm_info_HAH{$mdl_name}}, \@{$ftr_info_HAH{$mdl_name}}, $FH_HR);
 }
 
@@ -1248,7 +1266,7 @@ if($do_split) {
 
   if($do_blastn_ali) {
     helper_tabular_fill_header_and_justification_arrays("sda", \@head_AA, \@cljust_A, $FH_HR);
-    vdr_MergeOutputConcatenatePreserveSpacing($out_root_no_vadr, ".sda", "sda", "ungapped seed alignment summary file (-s)", $do_check_exists, $nlines_preserve_spacing, "  ", 1, \@head_AA, \@cljust_A, \@chunk_outdir_A, \%opt_HH, \%ofile_info_HH);
+    vdr_MergeOutputConcatenatePreserveSpacing($out_root_no_vadr, ".sda", "sda", "seed alignment summary file (-s)", $do_check_exists, $nlines_preserve_spacing, "  ", 1, \@head_AA, \@cljust_A, \@chunk_outdir_A, \%opt_HH, \%ofile_info_HH);
   }
   if($do_replace_ns) { 
     helper_tabular_fill_header_and_justification_arrays("rpn", \@head_AA, \@cljust_A, $FH_HR);
@@ -1546,8 +1564,8 @@ my %dcr_output_HAH = ();     # hash of array of hashes with info to output relat
 # -s related output for .sda file
 my %sda_output_HH = (); # 2D key with info to output related to the -s option
 # per-model variables only used if -s used
-my %sda_mdl_H     = ();  # key is sequence name, value is mdl coords of max length ungapped segment from blastn alignment
-my %sda_seq_H     = ();  # key is sequence name, value is seq coords of max length ungapped segment from blastn alignment
+my %sda_mdl_H     = ();  # key is sequence name, value is mdl coords of seed from blastn alignment
+my %sda_seq_H     = ();  # key is sequence name, value is seq coords of seed from blastn alignment
 my %seq2subseq_HA = ();  # hash of arrays, key 1: sequence name, array is list of subsequences fetched for this sequence
 my %subseq2seq_H  = ();  # hash, key: subsequence name, value is sequence it derives from
 my %subseq_len_H  = ();  # key is name of subsequence, value is length of that subsequence
@@ -1880,6 +1898,39 @@ for($mdl_idx = 0; $mdl_idx < $nmdl; $mdl_idx++) {
   }
 }
 
+##############################################################
+# Potentially remove annotation and alerts for some features
+# if we have 'alternative_ftr_set' information in the mdl info
+##############################################################
+for($mdl_idx = 0; $mdl_idx < $nmdl; $mdl_idx++) { 
+  $mdl_name = $mdl_info_AH[$mdl_idx]{"name"};
+#  if((0) && (defined $mdl_seq_name_HA{$mdl_name})) { 
+ if(defined $mdl_seq_name_HA{$mdl_name}) { 
+    if(vdr_FeatureInfoValidateAlternativeFeatureSet(\@{$ftr_info_HAH{$mdl_name}}, $FH_HR)) { 
+      # we'll enter this 'if' if any features have non-empty alternative_ftr_set
+      
+      # get children info for all features, we'll need this when picking features
+      my @i_am_child_A = ();
+      my @children_AA  = ();
+      my $nchildren = vdr_FeatureInfoChildrenArrayOfArrays(\@{$ftr_info_HAH{$mdl_name}}, undef, \@i_am_child_A, \@children_AA, $FH_HR);
+                                                           
+      # first pick features from sets that are not composed of any children
+      # this will remove features in alternative_ftr_sets that are not picked *and* their children
+      pick_features_from_all_alternatives(\@{$mdl_seq_name_HA{$mdl_name}}, \@{$ftr_info_HAH{$mdl_name}}, \%alt_info_HH, 
+                                          \%{$ftr_results_HHAH{$mdl_name}}, \%alt_ftr_instances_HHH, 
+                                          0, \@i_am_child_A, \@children_AA, 
+                                          \%opt_HH, \%{$ofile_info_HH{"FH"}});
+      # now pick features from sets that are not composed of any children (that we have left)
+      if($nchildren > 0) { 
+        pick_features_from_all_alternatives(\@{$mdl_seq_name_HA{$mdl_name}}, \@{$ftr_info_HAH{$mdl_name}}, \%alt_info_HH, 
+                                            \%{$ftr_results_HHAH{$mdl_name}}, \%alt_ftr_instances_HHH, 
+                                            1, \@i_am_child_A, \@children_AA,
+                                            \%opt_HH, \%{$ofile_info_HH{"FH"}});
+      }
+    }
+  }
+}
+
 ################################
 # Output annotations and alerts
 ################################
@@ -1921,7 +1972,7 @@ ofile_OpenAndAddFileToOutputInfo(\%ofile_info_HH, "alt",      $out_root . ".alt"
 ofile_OpenAndAddFileToOutputInfo(\%ofile_info_HH, "alc",      $out_root . ".alc", 1, 1, "alert count tabular summary file");
 ofile_OpenAndAddFileToOutputInfo(\%ofile_info_HH, "dcr",      $out_root . ".dcr", 1, 1, "alignment doctoring tabular summary file");
 if($do_blastn_ali) {
-  ofile_OpenAndAddFileToOutputInfo(\%ofile_info_HH, "sda",    $out_root . ".sda", 1, 1, "ungapped seed alignment summary file (-s)");
+  ofile_OpenAndAddFileToOutputInfo(\%ofile_info_HH, "sda",    $out_root . ".sda", 1, 1, "seed alignment summary file (-s)");
 }
 if($do_replace_ns) { 
   ofile_OpenAndAddFileToOutputInfo(\%ofile_info_HH, "rpn",    $out_root . ".rpn", 1, 1, "replaced stretches of Ns summary file (-r)");
@@ -2901,6 +2952,17 @@ sub add_classification_alerts {
   my $incspec_opt2print    = sprintf("%.3f", opt_Get("--incspec",    $opt_HHR));
   my $dupregsc_opt2print   = sprintf("%.1f", opt_Get("--dupregsc",   $opt_HHR));
 
+  # get info on position-specific indfstrn exceptions, if any
+  my @dupregin_exc_AA = ();
+  my @indfstrn_exc_AA = ();
+  my $nmdl = scalar(@{$mdl_info_AHR});
+  for($mdl_idx = 0; $mdl_idx < $nmdl; $mdl_idx++) { 
+    @{$dupregin_exc_AA[$mdl_idx]} = ();
+    @{$indfstrn_exc_AA[$mdl_idx]} = ();
+    vdr_ModelInfoCoordsListValueBreakdown($mdl_info_AHR, $mdl_idx, "dupregin_exc", \@{$dupregin_exc_AA[$mdl_idx]}, $FH_HR);
+    vdr_ModelInfoCoordsListValueBreakdown($mdl_info_AHR, $mdl_idx, "indfstrn_exc", \@{$indfstrn_exc_AA[$mdl_idx]}, $FH_HR);
+  }
+
   my $alt_scoords; # sequence coordinates related to an alert
   my $alt_mcoords; # model    coordinates related to an alert
 
@@ -2912,6 +2974,7 @@ sub add_classification_alerts {
   foreach my $seq_name (sort keys(%{$seq_len_HR})) { 
     my $seq_len  = $seq_len_HR->{$seq_name};
     my $mdl_name = undef;
+    my $mdl_idx  = undef;
     my $mdl_len  = undef;
     my %score_H  = (); # key is $stg_results_HHHR 2D key (search category), value is summed score
     my %scpnt_H  = (); # key is $stg_results_HHHR 2D key (search category), value is summed length
@@ -2937,7 +3000,8 @@ sub add_classification_alerts {
       }
       # determine model name and length
       $mdl_name = $stg_results_HHHR->{$seq_name}{"std.cdt.bs"}{"model"};
-      $mdl_len  = $mdl_info_AHR->[$mdl_idx_H{$mdl_name}]{"length"};
+      $mdl_idx  = $mdl_idx_H{$mdl_name};
+      $mdl_len  = $mdl_info_AHR->[$mdl_idx]{"length"};
       foreach my $rkey (keys (%{$stg_results_HHHR->{$seq_name}})) { 
         my @score_A = split(",", $stg_results_HHHR->{$seq_name}{$rkey}{"score"});
         $score_H{$rkey} = utl_ASum(\@score_A);
@@ -3115,10 +3179,19 @@ sub add_classification_alerts {
             my @ostrand_mstrand_A = ();
             vdr_FeatureStartStopStrandArrays($stg_results_HHHR->{$seq_name}{"std.cdt.os"}{"s_coords"}, \@ostrand_sstart_A, \@ostrand_sstop_A, \@ostrand_sstrand_A, $FH_HR);
             vdr_FeatureStartStopStrandArrays($stg_results_HHHR->{$seq_name}{"std.cdt.os"}{"m_coords"}, \@ostrand_mstart_A, \@ostrand_mstop_A, \@ostrand_mstrand_A, $FH_HR);
-            $alt_scoords = "seq:" . vdr_CoordsSegmentCreate($ostrand_sstart_A[0], $ostrand_sstop_A[0], $ostrand_sstrand_A[0], $FH_HR) . ";";
-            $alt_mcoords = "mdl:" . vdr_CoordsSegmentCreate($ostrand_mstart_A[0], $ostrand_mstop_A[0], $ostrand_mstrand_A[0], $FH_HR) . ";";
-            $alt_str = sprintf("score:%.1f>%s", $top_ostrand_score, $indefstr_opt2print);
-            alert_sequence_instance_add($alt_seq_instances_HHR, $alt_info_HHR, "indfstrn", $seq_name, $alt_scoords . $alt_mcoords . $alt_str, $FH_HR);
+            # check if this is an exempted region
+            my $exempted_region = 0;
+            foreach my $exc_coords (@{$indfstrn_exc_AA[$mdl_idx]}) { 
+              if(vdr_CoordsCheckIfSpans($exc_coords, vdr_CoordsSegmentCreate($ostrand_mstart_A[0], $ostrand_mstop_A[0], $ostrand_mstrand_A[0], $FH_HR), $FH_HR)) { 
+                $exempted_region = 1;
+              }
+            }
+            if(! $exempted_region) { 
+              $alt_scoords = "seq:" . vdr_CoordsSegmentCreate($ostrand_sstart_A[0], $ostrand_sstop_A[0], $ostrand_sstrand_A[0], $FH_HR) . ";";
+              $alt_mcoords = "mdl:" . vdr_CoordsSegmentCreate($ostrand_mstart_A[0], $ostrand_mstop_A[0], $ostrand_mstrand_A[0], $FH_HR) . ";";
+              $alt_str = sprintf("score:%.1f>%s", $top_ostrand_score, $indefstr_opt2print);
+              alert_sequence_instance_add($alt_seq_instances_HHR, $alt_info_HHR, "indfstrn", $seq_name, $alt_scoords . $alt_mcoords . $alt_str, $FH_HR);
+            }
           }
         }
 
@@ -3134,16 +3207,20 @@ sub add_classification_alerts {
           $alt_scoords = "";
           $alt_mcoords = "";
           vdr_FeatureStartStopStrandArrays($stg_results_HHHR->{$seq_name}{"std.cdt.bs"}{"m_coords"}, \@m_start_A, \@m_stop_A, \@m_strand_A, $FH_HR);
+          vdr_FeatureStartStopStrandArrays($stg_results_HHHR->{$seq_name}{"std.cdt.bs"}{"s_coords"}, \@s_start_A, \@s_stop_A, \@s_strand_A, $FH_HR);
           my @dupreg_score_A = split(",", $stg_results_HHHR->{$seq_name}{"std.cdt.bs"}{"score"});
           for(my $i = 0; $i < $nhits; $i++) { 
             if($dupreg_score_A[$i] > $dupregsc_opt) { 
               for(my $j = $i+1; $j < $nhits; $j++) { 
                 if($dupreg_score_A[$j] > $dupregsc_opt) { 
-                  my ($noverlap, $overlap_str) = seq_Overlap($m_start_A[$i], $m_stop_A[$i], $m_start_A[$j], $m_stop_A[$j], $FH_HR);
+                  my ($mdl_noverlap, $mdl_overlap_str) = vdr_CoordsSegmentOverlap(
+                    vdr_CoordsSegmentCreate($m_start_A[$i], $m_stop_A[$i], $m_strand_A[$i], $FH_HR), 
+                    vdr_CoordsSegmentCreate($m_start_A[$j], $m_stop_A[$j], $m_strand_A[$j], $FH_HR), $FH_HR);
+                  my ($seq_noverlap, $seq_overlap_str) = vdr_CoordsSegmentOverlap(
+                    vdr_CoordsSegmentCreate($s_start_A[$i], $s_stop_A[$i], $s_strand_A[$i], $FH_HR), 
+                    vdr_CoordsSegmentCreate($s_start_A[$j], $s_stop_A[$j], $s_strand_A[$j], $FH_HR), $FH_HR);
+                  my $noverlap = $mdl_noverlap - $seq_noverlap;
                   if($noverlap >= $dupregolp_opt) { 
-                    if(scalar(@s_start_A) == 0) { # first overlap above threshold, fill seq start/stop arrays:
-                      vdr_FeatureStartStopStrandArrays($stg_results_HHHR->{$seq_name}{"std.cdt.bs"}{"s_coords"}, \@s_start_A, \@s_stop_A, \@s_strand_A, $FH_HR);
-                    }
                     $alt_scoords .= sprintf("%s%s,%s", 
                                             ($alt_scoords eq "") ? "seq:" : ",",
                                             vdr_CoordsSegmentCreate($s_start_A[$i], $s_stop_A[$i], $s_strand_A[$i], $FH_HR), 
@@ -3152,12 +3229,22 @@ sub add_classification_alerts {
                                             ($alt_mcoords eq "") ? "mdl:" : ",",
                                             vdr_CoordsSegmentCreate($m_start_A[$i], $m_stop_A[$i], $m_strand_A[$i], $FH_HR), 
                                             vdr_CoordsSegmentCreate($m_start_A[$j], $m_stop_A[$j], $m_strand_A[$j], $FH_HR));
-                    $overlap_str =~ s/\-/\.\./; # replace '-' with '..', e.g. '10-15' to '10..15'
-                    $alt_str     .= sprintf("%s%s (len %d>=%d) hits %d (%.1f bits) and %d (%.1f bits)",
-                                            ($alt_str eq "") ? "" : ", ",
-                                            $overlap_str, $noverlap, $dupregolp_opt, 
-                                            ($i+1), $dupreg_score_A[$i], 
-                                            ($j+1), $dupreg_score_A[$j]);
+                    $mdl_overlap_str =~ s/\-/\.\./; # replace '-' with '..', e.g. '10-15' to '10..15'
+                    $mdl_overlap_str .= ":" . $m_strand_A[$i]; # both $i and $j are same strand
+                    # check if this is an exempted region
+                    my $exempted_region = 0;
+                    foreach my $exc_coords (@{$dupregin_exc_AA[$mdl_idx]}) { 
+                      if(vdr_CoordsCheckIfSpans($exc_coords, $mdl_overlap_str, $FH_HR)) { 
+                        $exempted_region = 1;
+                      }
+                    }
+                    if(! $exempted_region) { # only report if not exempted
+                      $alt_str .= sprintf("%s%s (len %d>=%d) hits %d (%.1f bits) and %d (%.1f bits)",
+                                          ($alt_str eq "") ? "" : ", ",
+                                          $mdl_overlap_str, $noverlap, $dupregolp_opt, 
+                                          ($i+1), $dupreg_score_A[$i], 
+                                          ($j+1), $dupreg_score_A[$j]);
+                    }
                   }
                 }
               }
@@ -3877,7 +3964,7 @@ sub cmalign_or_glsearch_run {
 #             a different valid start/stop.
 #
 #             Detects and adds the following alerts to 
-#             @{$alt_ftr_instances_AAHR}:
+#             @{$alt_ftr_instances_HHHR}:
 #             indf5gap: gap at 5' boundary of model span for a feature segment
 #             indf3gap: gap at 5' boundary of model span for a feature segment
 #             indf5lcc: low posterior prob at 5' boundary of model span for a coding feature segment
@@ -3899,7 +3986,7 @@ sub cmalign_or_glsearch_run {
 #  $sgm_results_HAHR:          REF to results HAH, FILLED HERE
 #  $ftr_results_HAHR:          REF to feature results HAH, possibly ADDED TO HERE
 #  $alt_seq_instances_HHR:     REF to array of hash with per-sequence alerts, ADDED TO HERE
-#  $alt_ftr_instances_HHHR:    REF to error instances HAH, ADDED TO HERE
+#  $alt_ftr_instances_HHHR:    REF to error instances HHH, ADDED TO HERE
 #  $dcr_output_HAHR:           REF to hash of array of hashes with info on doctored seqs to output, ADDED TO HERE
 #  $mdl_name:                  model name this alignment pertains to
 #  $ftr_fileroot_AR:           REF to array of per-feature file root values, pre-calc'ed and passed in so we don't need to do it per-seq
@@ -4241,7 +4328,7 @@ sub parse_stk_and_add_alignment_cds_and_mp_alerts {
         # keep track that this segment is completely deleted, by constructing its 
         # alert message for a possible deletinf alert. However we can't report it yet
         # because if all segments for this feature are deleted we will report a 
-        # deletins (per-sequence) alert instead. So we just store the possible
+        # deletins or deletina (per-sequence) alert instead. So we just store the possible
         # deletinf alert here in %ftr_deletinf_alt_msg_HA and then deal with it after
         # the 'for($sgm_idx=0..$nsgm-1)' block below
         my $ftr_nsgm = ($ftr_info_AHR->[$ftr_idx]{"3p_sgm_idx"} - $ftr_info_AHR->[$ftr_idx]{"5p_sgm_idx"}) + 1;
@@ -4558,18 +4645,21 @@ sub parse_stk_and_add_alignment_cds_and_mp_alerts {
                                    $FH_HR);
       }
       
-      # report any deletinf/deletins alerts
+      # report any deletinf/deletins/deletina alerts
       for($ftr_idx = 0; $ftr_idx < $nftr; $ftr_idx++) { 
         if(defined $ftr_deletinf_alt_msg_HA{$ftr_idx}) { 
           my $nsgm_alt = scalar(@{$ftr_deletinf_alt_msg_HA{$ftr_idx}});
           my $nsgm_tot = vdr_FeatureNumSegments($ftr_info_AHR, $ftr_idx);
           if($nsgm_alt == $nsgm_tot) { 
-            # all segments are deleted, report deletins (per-sequence) alert, 
-            # we do NOT report any deletinf alerts, one reason is there is no 
-            # feature annotation for $ftr_idx in this case
+            # all segments are deleted, report either deletins or
+            # deletina (per-sequence) alert, we do NOT report any
+            # deletinf alerts, one reason is there is no feature
+            # annotation for $ftr_idx in this case
             my $alt_scoords = "seq:VADRNULL;"; # feature is deleted, no sequence info available
             my $alt_mcoords = "mdl:" . $ftr_info_AHR->[$ftr_idx]{"coords"} . ";";
-            alert_sequence_instance_add($alt_seq_instances_HHR, $alt_info_HHR, "deletins", $seq_name, 
+            # determine which code to use depending on is_deletable value from ftr_info
+            my $alt_code    = $ftr_info_AHR->[$ftr_idx]{"is_deletable"} ? "deletina" : "deletins";
+            alert_sequence_instance_add($alt_seq_instances_HHR, $alt_info_HHR, $alt_code, $seq_name, 
                                         sprintf("%s%s%s feature number %s: %s",
                                                 $alt_scoords, $alt_mcoords,
                                                 $ftr_info_AHR->[$ftr_idx]{"type"}, 
@@ -4714,14 +4804,17 @@ sub add_frameshift_alerts_for_one_sequence {
   my $alert_scoords = undef; # sequence coords string for an alert
   my $alert_mcoords = undef; # model coords string for an alert
 
-  # get info on position-specific insert and delete maximum exceptions if there are any
-  my @nmaxins_exc_AH = ();
-  my @nmaxdel_exc_AH = ();
+  # get info on position-specific insert and delete maximum exceptions, and frameshift regions, if there are any
+  my @nmaxins_exc_AH  = ();
+  my @nmaxdel_exc_AH  = ();
+  my @fs_exc_AA       = ();
   for($ftr_idx = 0; $ftr_idx < $nftr; $ftr_idx++) { 
     %{$nmaxins_exc_AH[$ftr_idx]} = ();
     %{$nmaxdel_exc_AH[$ftr_idx]} = ();
+    @{$fs_exc_AA[$ftr_idx]} = ();
     vdr_FeaturePositionSpecificValueBreakdown($ftr_info_AHR, $ftr_idx, "nmaxins_exc", \%{$nmaxins_exc_AH[$ftr_idx]}, $FH_HR);
     vdr_FeaturePositionSpecificValueBreakdown($ftr_info_AHR, $ftr_idx, "nmaxdel_exc", \%{$nmaxdel_exc_AH[$ftr_idx]}, $FH_HR);
+    vdr_FeatureCoordsListValueBreakdown($ftr_info_AHR, $ftr_idx, "frameshift_exc", \@{$fs_exc_AA[$ftr_idx]}, $FH_HR);
   }
 
   # for each CDS: determine frame, and report frameshift alerts
@@ -5033,46 +5126,24 @@ sub add_frameshift_alerts_for_one_sequence {
               }
               $span_slen = abs($span_sstop - $span_sstart) + 1;
               $span_mlen = abs($span_mstop - $span_mstart) + 1;
-              if((($is_5p) && ($span_slen >= $fst_min_nt5)) || 
-                 (($is_3p) && ($span_slen >= $fst_min_nt3)) || 
-                 ((! $is_5p) && (! $is_3p) && ($span_slen >= $fst_min_nti))) { 
-                # above our length threshold, if $do_glsearch, we always report this, if not it depends on the avg PP value
-                if($do_glsearch) { # we don't have PP values, so all frameshifts are treated equally
-                  my $loc_str  = "internal";
-                  my $alt_code = "fstukcfi";
-                  if($is_5p) { $loc_str = "5'-most"; $alt_code = "fstukcf5"; }
-                  if($is_3p) { $loc_str = "3'-most"; $alt_code = "fstukcf3"; }
-                  my $alt_scoords_tok =      vdr_CoordsSegmentCreate(    $span_sstart,      $span_sstop,  $ftr_strand, $FH_HR);
-                  my $alt_mcoords = "mdl:" . vdr_CoordsSegmentCreate(abs($span_mstart), abs($span_mstop), $ftr_strand, $FH_HR) . ";";
-                  my $alt_scoords = "seq:" . $alt_scoords_tok . ";";
-                  my $alt_str  = sprintf("%s%s", $alt_scoords, $alt_mcoords);
-                  $alt_str .= sprintf("length:%d;", vdr_CoordsLength($alt_scoords_tok, $FH_HR));
-                  $alt_str .= sprintf(" inserts:%s", ($insert_str eq "") ? "none;" : $insert_str);
-                  $alt_str .= sprintf(" deletes:%s", ($delete_str eq "") ? "none;" : $delete_str);
-                  $alt_str .= sprintf(" shifted_frame:%s; dominant_frame:%s;", $shifted_frame, $dominant_frame);
-                  alert_feature_instance_add($alt_ftr_instances_HHHR, $alt_info_HHR, $alt_code, $seq_name, $ftr_idx, $alt_str, $FH_HR);
-                  $insert_str = "";
-                  $delete_str = "";
-                  push(@cds_alt_str_A, $alt_str);
+
+              # check if this is an exempted region
+              my $exempted_region = 0;
+              foreach my $exc_coords (@{$fs_exc_AA[$ftr_idx]}) { 
+                if(vdr_CoordsCheckIfSpans($exc_coords, vdr_CoordsSegmentCreate($span_mstart, $span_mstop, $ftr_strand, $FH_HR), $FH_HR)) { 
+                  $exempted_region = 1;
                 }
-                else { # $do_glsearch is 0 so we have PP values and we examine them to determine type of frameshift
-                  # this *may* be a fstlocnf or fsthicnf alert, depending on the average PP of the shifted region
-                  # determine average posterior probability of non-dominant frame subseq
-                  if(! defined $full_ppstr) { 
-                    $full_ppstr = $msa->get_ppstring_aligned($seq_idx); 
-                    $full_ppstr =~ s/[^0123456789\*]//g; # remove gaps, so we have 1 character in $full_ppstr per nt in the sequence
-                  }
-                  my $span_ppstr = ($ftr_strand eq "+") ? 
-                      substr($full_ppstr, $span_sstart - 1, ($span_slen)) : 
-                      substr($full_ppstr, $span_sstop  - 1, ($span_slen));
-                  my $span_avgpp;
-                  ($span_avgpp, undef) = Bio::Easel::MSA->get_ppstr_avg($span_ppstr);
-                  if($span_avgpp > ($fst_low_ppthr - $small_value)) { # we have a fstlocnf or fsthicnf alert
-                    my $loc_str     = "internal";
-                    my $hi_alt_code = "fsthicfi";
-                    my $lo_alt_code = "fstlocfi";
-                    if($is_5p) { $loc_str = "5'-most"; $hi_alt_code = "fsthicf5"; $lo_alt_code = "fstlocf5"; }
-                    if($is_3p) { $loc_str = "3'-most"; $hi_alt_code = "fsthicf3"; $lo_alt_code = "fstlocf3"; }
+              }
+              if(! $exempted_region) { 
+                if((($is_5p) && ($span_slen >= $fst_min_nt5)) || 
+                   (($is_3p) && ($span_slen >= $fst_min_nt3)) || 
+                   ((! $is_5p) && (! $is_3p) && ($span_slen >= $fst_min_nti))) { 
+                  # above our length threshold, if $do_glsearch, we always report this, if not it depends on the avg PP value
+                  if($do_glsearch) { # we don't have PP values, so all frameshifts are treated equally
+                    my $loc_str  = "internal";
+                    my $alt_code = "fstukcfi";
+                    if($is_5p) { $loc_str = "5'-most"; $alt_code = "fstukcf5"; }
+                    if($is_3p) { $loc_str = "3'-most"; $alt_code = "fstukcf3"; }
                     my $alt_scoords_tok =      vdr_CoordsSegmentCreate(    $span_sstart,      $span_sstop,  $ftr_strand, $FH_HR);
                     my $alt_mcoords = "mdl:" . vdr_CoordsSegmentCreate(abs($span_mstart), abs($span_mstop), $ftr_strand, $FH_HR) . ";";
                     my $alt_scoords = "seq:" . $alt_scoords_tok . ";";
@@ -5081,14 +5152,46 @@ sub add_frameshift_alerts_for_one_sequence {
                     $alt_str .= sprintf(" inserts:%s", ($insert_str eq "") ? "none;" : $insert_str);
                     $alt_str .= sprintf(" deletes:%s", ($delete_str eq "") ? "none;" : $delete_str);
                     $alt_str .= sprintf(" shifted_frame:%s; dominant_frame:%s;", $shifted_frame, $dominant_frame);
-                    $alt_str .= sprintf(" avgpp:%.3f;", $span_avgpp);
-                    my $is_hicnf = ($span_avgpp > ($fst_high_ppthr - $small_value)) ? 1 : 0;
-                    alert_feature_instance_add($alt_ftr_instances_HHHR, $alt_info_HHR, 
-                                               ($is_hicnf) ? $hi_alt_code : $lo_alt_code,
-                                               $seq_name, $ftr_idx, $alt_str, $FH_HR);
+                    alert_feature_instance_add($alt_ftr_instances_HHHR, $alt_info_HHR, $alt_code, $seq_name, $ftr_idx, $alt_str, $FH_HR);
                     $insert_str = "";
                     $delete_str = "";
                     push(@cds_alt_str_A, $alt_str);
+                  }
+                  else { # $do_glsearch is 0 so we have PP values and we examine them to determine type of frameshift
+                    # this *may* be a fstlocnf or fsthicnf alert, depending on the average PP of the shifted region
+                    # determine average posterior probability of non-dominant frame subseq
+                    if(! defined $full_ppstr) { 
+                      $full_ppstr = $msa->get_ppstring_aligned($seq_idx); 
+                      $full_ppstr =~ s/[^0123456789\*]//g; # remove gaps, so we have 1 character in $full_ppstr per nt in the sequence
+                    }
+                    my $span_ppstr = ($ftr_strand eq "+") ? 
+                        substr($full_ppstr, $span_sstart - 1, ($span_slen)) : 
+                        substr($full_ppstr, $span_sstop  - 1, ($span_slen));
+                    my $span_avgpp;
+                    ($span_avgpp, undef) = Bio::Easel::MSA->get_ppstr_avg($span_ppstr);
+                    if($span_avgpp > ($fst_low_ppthr - $small_value)) { # we have a fstlocnf or fsthicnf alert
+                      my $loc_str     = "internal";
+                      my $hi_alt_code = "fsthicfi";
+                      my $lo_alt_code = "fstlocfi";
+                      if($is_5p) { $loc_str = "5'-most"; $hi_alt_code = "fsthicf5"; $lo_alt_code = "fstlocf5"; }
+                      if($is_3p) { $loc_str = "3'-most"; $hi_alt_code = "fsthicf3"; $lo_alt_code = "fstlocf3"; }
+                      my $alt_scoords_tok =      vdr_CoordsSegmentCreate(    $span_sstart,      $span_sstop,  $ftr_strand, $FH_HR);
+                      my $alt_mcoords = "mdl:" . vdr_CoordsSegmentCreate(abs($span_mstart), abs($span_mstop), $ftr_strand, $FH_HR) . ";";
+                      my $alt_scoords = "seq:" . $alt_scoords_tok . ";";
+                      my $alt_str  = sprintf("%s%s", $alt_scoords, $alt_mcoords);
+                      $alt_str .= sprintf("length:%d;", vdr_CoordsLength($alt_scoords_tok, $FH_HR));
+                      $alt_str .= sprintf(" inserts:%s", ($insert_str eq "") ? "none;" : $insert_str);
+                      $alt_str .= sprintf(" deletes:%s", ($delete_str eq "") ? "none;" : $delete_str);
+                      $alt_str .= sprintf(" shifted_frame:%s; dominant_frame:%s;", $shifted_frame, $dominant_frame);
+                      $alt_str .= sprintf(" avgpp:%.3f;", $span_avgpp);
+                      my $is_hicnf = ($span_avgpp > ($fst_high_ppthr - $small_value)) ? 1 : 0;
+                      alert_feature_instance_add($alt_ftr_instances_HHHR, $alt_info_HHR, 
+                                                 ($is_hicnf) ? $hi_alt_code : $lo_alt_code,
+                                                 $seq_name, $ftr_idx, $alt_str, $FH_HR);
+                      $insert_str = "";
+                      $delete_str = "";
+                      push(@cds_alt_str_A, $alt_str);
+                    }
                   }
                 }
               }
@@ -8631,14 +8734,14 @@ sub alert_add_parent_based {
 
   # get children info for all features, we'll use this in the loop below
   my @children_AA = ();
-  vdr_FeatureInfoChildrenArrayOfArrays($ftr_info_AHR, $child_type, \@children_AA, $FH_HR);
+  vdr_FeatureInfoChildrenArrayOfArrays($ftr_info_AHR, $child_type, undef, \@children_AA, $FH_HR);
 
   # get array of feature indices that are of type $parent_type
   my @parent_ftr_idx_A = ();
   my $ftr_idx; 
   for($ftr_idx = 0; $ftr_idx < $nftr; $ftr_idx++) { 
     if(($ftr_info_AHR->[$ftr_idx]{"type"} eq $parent_type) && # feature $ftr_idx is of type $parent_type
-       (scalar(@{$children_AA[$ftr_idx]}) > 0)) {             # feature $ftr_idx has at least one childe of type $child_type
+       (scalar(@{$children_AA[$ftr_idx]}) > 0)) {             # feature $ftr_idx has at least one child of type $child_type
       push(@parent_ftr_idx_A, $ftr_idx);
     }
   }
@@ -8814,8 +8917,8 @@ sub alert_add_ambgnt5s_ambgnt3s {
 #  $alt_seq_instances_HHR: REF to 2D hashes with per-sequence alerts, PRE-FILLED
 #  $FH_HR:                 REF to hash of file handles
 #
-# Returns:    A string with all per-sequence err codes for this sequence 
-#             concatenated and separated by commas.
+# Returns:    '1' if >=1 alerts prevent annotation
+#             '0' if 0   alerts prevent annotation
 #
 ################################################################# 
 sub alert_instances_check_prevents_annot { 
@@ -8835,6 +8938,48 @@ sub alert_instances_check_prevents_annot {
   }
   
   return 0;
+}
+
+#################################################################
+# Subroutine:  alert_feature_instances_count_fatal()
+# Incept:      EPN, Wed Oct 13 12:13:15 2021
+#
+
+# Purpose:    Given a sequence name and feature index, count the
+#             number of fatal alerts stored in %{$alt_ftr_instances_HHHR}
+#             and return that number.
+#
+# Arguments: 
+#  $seq_name:               name of sequence
+#  $ftr_idx:                feature index
+#  $alt_info_HHR:           REF to the alert info hash of arrays, PRE-FILLED
+#  $alt_ftr_instances_HHHR: REF to 3D hashes with per-feature alerts, PRE-FILLED
+#  $FH_HR:                  REF to hash of file handles
+#
+# Returns:    Number of fatal alerts for this sequence and feature
+#
+################################################################# 
+sub alert_feature_instances_count_fatal {
+  my $sub_name = "alert_feature_instances_count_fatal";
+  my $nargs_exp = 5;
+  if(scalar(@_) != $nargs_exp) { die "ERROR $sub_name entered with wrong number of input args"; }
+
+  my ($seq_name, $ftr_idx, $alt_info_HHR, $alt_ftr_instances_HHHR, $FH_HR) = @_;
+
+  my $nfatal = 0;
+  if(defined $alt_ftr_instances_HHHR->{$seq_name}) { 
+    if(defined $alt_ftr_instances_HHHR->{$seq_name}{$ftr_idx}) { 
+      foreach my $alt_code (keys (%{$alt_ftr_instances_HHHR->{$seq_name}{$ftr_idx}})) { 
+        if($alt_info_HHR->{$alt_code}{"causes_failure"}) { 
+          my @instance_str_A = split(":VADRSEP:", alert_feature_instance_fetch($alt_ftr_instances_HHHR, $seq_name, $ftr_idx, $alt_code));
+          $nfatal += scalar(@instance_str_A);
+        }
+      }
+    }
+  }
+  
+  # printf("in $sub_name, seq_name: $seq_name ftr_idx: $ftr_idx returning nfatal: $nfatal\n");
+  return $nfatal;
 }
 
 #################################################################
@@ -12946,7 +13091,7 @@ sub helper_tabular_fill_header_and_justification_arrays {
     @{$clj_AR}        = (1,     1,      1,      1,      1,       0,     1,       0,       0,       0,           0,           1,       0,        0,       0,        0,      1);
   }
   elsif($ofile_key eq "sda") {
-    @{$head_AAR->[0]} = ("seq", "seq",    "seq", "",      "",      "ungapped",  "ungapped", "ungapped", "5'unaln", "5'unaln", "5'unaln",  "3'unaln", "3'unaln", "3'unaln");
+    @{$head_AAR->[0]} = ("seq", "seq",    "seq", "",      "",      "seed",      "seed",     "seed",     "5'unaln", "5'unaln", "5'unaln",  "3'unaln", "3'unaln", "3'unaln");
     @{$head_AAR->[1]} = ("idx", "name",   "len", "model", "p/f",   "seq",       "mdl",      "fraction", "seq",     "mdl",     "fraction", "seq",     "mdl",     "fraction");
     @{$clj_AR}        = (1,     1,        0,     1,       1,       0,           0,          0,          0,         0,         0,          0,         0,         0);
   }  
@@ -13281,4 +13426,132 @@ sub determine_terminal_Xs_if_necessary_by_translating {
   } # end of 'if($cds_len > $cds_5nlen)'
 
   return ($cds_5xlen, $cds_3xlen, $cds_start_non_x, $cds_stop_non_x);
+=======
+# Subroutine: pick_features_from_all_alternatives()
+# Incept:     EPN, Wed Oct 13 12:00:26 2021
+# Purpose:    For features that have a non-empty 'alternative_ftr_set'
+#             value, choose one representative from all alternatives
+#             and delete annotation and alerts from all other alternatives.
+#             This subroutine should be called twice, first with the
+#             $only_children_flag set as '0' to only pick features from 
+#             sets that are not children, then again with $only_children_flag 
+#             set as '1' to only pick features from sets that *are* children.
+#             This is important because when we remove results/alerts for
+#             parents we also remove results/alerts for their children.
+#             This only works because we validate (in vdr_FeatureInfoValidateAlternativeFeatureSet)
+#             - that for any alternative_ftr_set set that includes >= 1 feature
+#               child, all members of that set are children, with the same parent.
+#             And in vdr_FeatureInfoParentIndexStrings we validate that
+#             all features that are parents are not themselves children
+#             of any feature.
+#
+# Arguments:
+#  $seq_name_AR:             REF to array of sequence names, PRE-FILLED
+#  $ftr_info_AHR:            REF to array of hashes with information on the features, PRE-FILLED
+#  $alt_info_HHR:            REF to array of hashes with information on the alerts, PRE-FILLED
+#  $ftr_results_HAHR:        REF to feature results HAH, PRE-FILLED
+#  $alt_ftr_instances_HHHR:  REF to array of 2D hashes with per-feature alerts, PRE-FILLED
+#  $only_children_flag:      '1' to only remove sets that are all children, '0' to remove sets that
+#                            are not all children, see 'Purpose'
+#  $i_am_child_AR:           REF [0..$nftr-1] to array of 1/0 values on whether each feature is a child, PRE-FILLED
+#  $children_AAR:            REF to array of arrays of children feature indices, FILLED HERE, can be undef, PRE-FILLED
+#  $opt_HHR:                 REF to 2D hash of option values, see top of sqp_opts.pm for description
+#  $FH_HR:                   REF to hash of file handles, including 'log'
+#             
+# Returns:  void
+# 
+# Dies:     never
+#
+#################################################################
+sub pick_features_from_all_alternatives { 
+  my $sub_name = "pick_features_from_all_alternatives";
+  my $nargs_exp = 10;
+  if(scalar(@_) != $nargs_exp) { die "ERROR $sub_name entered with wrong number of input args"; }
+
+  my ($seq_name_AR, $ftr_info_AHR, $alt_info_HHR, $ftr_results_HAHR, $alt_ftr_instances_HHHR, 
+      $only_children_flag, $i_am_child_AR, $children_AAR, $opt_HHR, $FH_HR) = @_;
+
+  my $nseq = scalar(@{$seq_name_AR});
+  my $nftr = scalar(@{$ftr_info_AHR});
+
+  my $ftr_idx; 
+  my $ftr_idx2; 
+  foreach my $seq_name (@{$seq_name_AR}) { 
+    my %sets_completed_H = (); # key is name of a set, value is '1' if we've already completed that set
+    if((defined $ftr_results_HAHR->{$seq_name}) || (defined $alt_ftr_instances_HHHR->{$seq_name})) { 
+      for($ftr_idx = 0; $ftr_idx < $nftr; $ftr_idx++) { 
+        if(((defined $ftr_results_HAHR->{$seq_name})       && (defined $ftr_results_HAHR->{$seq_name}[$ftr_idx])) || 
+           ((defined $alt_ftr_instances_HHHR->{$seq_name}) && (defined $alt_ftr_instances_HHHR->{$seq_name}{$ftr_idx}))) { 
+          # if(  only_children_flag), we only pick from a set for children
+          # if(! only_children_flag), we only pick from a set for non-children
+          if(((  $only_children_flag) && (  $i_am_child_AR->[$ftr_idx])) || 
+             ((! $only_children_flag) && (! $i_am_child_AR->[$ftr_idx]))) { 
+            my $set = $ftr_info_AHR->[$ftr_idx]{"alternative_ftr_set"};
+            if(($set ne "") && (! defined $sets_completed_H{$set})) { 
+              my @ftr_set_A = ($ftr_idx);
+              for($ftr_idx2 = $ftr_idx+1; $ftr_idx2 < $nftr; $ftr_idx2++) { # can start at $ftr_idx+1 b/c we've already covered earlier ftr_idx values  
+                if($ftr_info_AHR->[$ftr_idx2]{"alternative_ftr_set"} eq $set) { 
+                  push(@ftr_set_A, $ftr_idx2);
+                }
+              }
+              # find 'winner' out of all possible features in @ftr_set_A
+              my $nset = scalar(@ftr_set_A);
+              if($nset == 1) { 
+                ofile_FAIL("ERROR in $sub_name, alt feature set with value $set only has 1 member post-validation", 1, $FH_HR);
+              }
+              my $nfatal         = undef;
+              my $winner_nfatal  = undef;
+              my $winner_set_idx = undef;
+              my $ftr_set_idx    = undef;
+              for($ftr_set_idx = 0; $ftr_set_idx < $nset; $ftr_set_idx++) { 
+                $ftr_idx2 = $ftr_set_A[$ftr_set_idx];
+                # count fatal alerts for substitute if we have one
+                # printf("\tftr_set_idx: $ftr_set_idx, ftr_idx2: $ftr_idx2\n");
+                if((defined $ftr_info_AHR->[$ftr_idx2]{"alternative_ftr_set_subn"}) && 
+                   $ftr_info_AHR->[$ftr_idx2]{"alternative_ftr_set_subn"} ne "") {
+                  $ftr_idx2 = $ftr_info_AHR->[$ftr_idx2]{"alternative_ftr_set_subn"};
+                  # printf("\tsubstituted $ftr_idx2 due to alternative_ftr_set_subn values\n");
+                }
+                my $nfatal = alert_feature_instances_count_fatal($seq_name, $ftr_idx2, $alt_info_HHR, $alt_ftr_instances_HHHR, $FH_HR);
+                if($nfatal == 0) { 
+                  # no fatal alerts, this is our winner, break the loop          
+                  $winner_nfatal  = $nfatal;
+                  $winner_set_idx = $ftr_set_idx; 
+                  $ftr_set_idx    = $nset; # breaks loop
+                }
+                elsif((! defined $winner_nfatal) || ($nfatal < $winner_nfatal)) { 
+                  # >= 1 fatal alerts, but minimum yet seen, this is our current winner but keep looking
+                  $winner_nfatal  = $nfatal;
+                  $winner_set_idx = $ftr_set_idx; 
+                }
+              }
+              # go through and remove results and alerts for all non-winners in this set and their children
+              # printf("winner_set_idx is $winner_set_idx, ftr_idx: $ftr_set_A[$winner_set_idx]\n");
+              for($ftr_set_idx = 0; $ftr_set_idx < $nset; $ftr_set_idx++) { 
+                if($ftr_set_idx != $winner_set_idx) { 
+                  $ftr_idx2 = $ftr_set_A[$ftr_set_idx];
+                  %{$ftr_results_HAHR->{$seq_name}[$ftr_idx2]} = ();
+                  %{$alt_ftr_instances_HHHR->{$seq_name}{$ftr_idx2}} = ();
+                  undef $ftr_results_HAHR->{$seq_name}[$ftr_idx2];
+                  undef $alt_ftr_instances_HHHR->{$seq_name}{$ftr_idx2};
+                  my $nchildren = scalar(@{$children_AAR->[$ftr_idx2]}); 
+                  # nchildren will always be '0' if $only_children_flag is '1' because 
+                  # children can't have children, enforced in vdr_FeatureInfoValidateParentIndexStrings()
+                  for(my $child_idx = 0; $child_idx < $nchildren; $child_idx++) { 
+                    my $child_ftr_idx = $children_AAR->[$ftr_idx2][$child_idx];
+                    %{$ftr_results_HAHR->{$seq_name}[$child_ftr_idx]} = ();
+                    %{$alt_ftr_instances_HHHR->{$seq_name}{$child_ftr_idx}} = ();
+                    undef $ftr_results_HAHR->{$seq_name}[$child_ftr_idx];
+                    undef $alt_ftr_instances_HHHR->{$seq_name}{$child_ftr_idx};
+                  }
+                }
+              }
+              $sets_completed_H{$set} = 1;
+            }
+          }
+        }
+      }
+    }
+  }
+  return;
 }
