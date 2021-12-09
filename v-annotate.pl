@@ -13279,7 +13279,7 @@ sub helper_feature_terminal_ambiguities {
   # Caveat: if we have a CDS that is not truncated and has ambiguities in first 3 nt (this the stop codon if $is_reversed and start codon)
   #         otherwise) then we count the stop codon as 3 Ns, 
   #         and find first non-N after the first 3
-  if((($ftr_is_cds || $ftr_matches_cds)) && (! $is_trunc) && ($ret_nlen < 3) && ($ret_nlen != $ftr_len) && 
+  if((($ftr_is_cds || $ftr_matches_cds)) && (! $is_trunc) && ($ret_nlen == 0) && ($ret_nlen != $ftr_len) && 
      (check_for_ambiguous_nts_in_sqstring(substr($ftr_sqstring, 0, 3)))) { 
     my $codon_len = utl_Min(3, $ftr_len);
     $ret_nlen = $codon_len + count_terminal_Ns_in_sqstring(substr($ftr_sqstring, 3));
