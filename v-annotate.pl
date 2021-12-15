@@ -339,6 +339,15 @@ opt_Add("--r_pvorig",     "boolean",      0,   $g,    "-r", undef,    "use origi
 opt_Add("--r_prof",       "boolean",      0,   $g,    "-r", undef,    "use slower profile methods, not blastn, to identify Ns to replace",         "use slower profile methods, not blastn, to identify Ns to replace",       \%opt_HH, \@opt_order_A);
 opt_Add("--r_list",       "string",   undef,   $g,    "-r", undef,    "with -r, only use models listed in file <s> for N replacement stage",       "with -r, only use models listed in file <s> for N replacement stage",     \%opt_HH, \@opt_order_A);
 opt_Add("--r_only",       "string",   undef,   $g,    "-r","--r_list","with -r, only use model named <s> for N replacement stage",                 "with -r, only use model named <s> for N replacement stage",               \%opt_HH, \@opt_order_A);
+opt_Add("--r_blastnws",   "integer",      7,   $g,    "-r", undef,          "for -r, set blastn -word_size <n> to <n>",                            "for -r, set blastn -word_size <n> to <n>", \%opt_HH, \@opt_order_A);
+opt_Add("--r_blastnrw",   "integer",      1,   $g,    "-r", undef,          "for -r, set blastn -reward <n> to <n>",                               "for -r, set blastn -reward <n> to <n>", \%opt_HH, \@opt_order_A);
+opt_Add("--r_blastnpn",   "integer",     -2,   $g,    "-r", undef,          "for -r, set blastn -penalty <n> to <n>",                              "for -r, set blastn -penalty <n> to <n>", \%opt_HH, \@opt_order_A);
+opt_Add("--r_blastngo",   "integer",      2,   $g,    "-r","--r_blastngdf", "for -r, set blastn -gapopen <n> to <n>",                              "for -r, set blastn -gapopen <n> to <n>", \%opt_HH, \@opt_order_A);
+opt_Add("--r_blastnge",   "real",         1,   $g,    "-r","--r_blastngdf", "for -r, set blastn -gapextend <x> to <x>",                            "for -r, set blastn -gapextend <x> to <x>", \%opt_HH, \@opt_order_A);
+opt_Add("--r_blastngdf",  "boolean",      0,   $g,    "-r", undef,          "for -r, don't use -gapopen/-gapextend w/blastn (use default values)", "for -r, don't use -gapopen/-gapextend w/blastn (use default values)", \%opt_HH, \@opt_order_A);
+opt_Add("--r_blastnsc",   "real",      50.0,   $g,    "-r", undef,          "for -r, set blastn minimum HSP score to consider to <x>",             "for -r, set blastn minimum HSP score to consider to <x>", \%opt_HH, \@opt_order_A);
+opt_Add("--r_blastntk",   "boolean",      0,   $g,    "-r", undef,          "for -r, set blastn option -task blastn",                              "for -r, set blastn option -task blastn", \%opt_HH, \@opt_order_A);
+opt_Add("--r_blastnxd",   "integer",    110,   $g,    "-r", undef,          "for -r, set blastn option -xdrop_gap_final <n> to <n>",               "for -r, set blastn -xdrop_gap_final <n> to <n>", \%opt_HH, \@opt_order_A);
 
 $opt_group_desc_H{++$g} = "options related to splitting input file into chunks and processing each chunk separately";
 #     option            type       default  group   requires incompat    preamble-output                                                          help-output    
@@ -504,6 +513,15 @@ my $options_okay =
                 'r_prof'        => \$GetOptions_H{"--r_prof"},
                 'r_list=s'      => \$GetOptions_H{"--r_list"},
                 'r_only=s'      => \$GetOptions_H{"--r_only"},
+                'r_blastnws=s'  => \$GetOptions_H{"--r_blastnws"},
+                'r_blastnrw=s'  => \$GetOptions_H{"--r_blastnrw"},
+                'r_blastnpn=s'  => \$GetOptions_H{"--r_blastnpn"},
+                'r_blastngo=s'  => \$GetOptions_H{"--r_blastngo"},
+                'r_blastnge=s'  => \$GetOptions_H{"--r_blastnge"},
+                'r_blastngdf'   => \$GetOptions_H{"--r_blastngdf"},
+                'r_blastnsc=s'  => \$GetOptions_H{"--r_blastnsc"},
+                'r_blastntk'    => \$GetOptions_H{"--r_blastntk"},
+                'r_blastnxd=s'  => \$GetOptions_H{"--r_blastnxd"},
 # options related to splitting
                 'split'         => \$GetOptions_H{"--split"},
                 'cpu=s'         => \$GetOptions_H{"--cpu"}, 
@@ -546,8 +564,8 @@ my $executable    = (defined $execname_opt) ? $execname_opt : "v-annotate.pl";
 my $usage         = "Usage: $executable [-options] <fasta file to annotate> <output directory to create>\n";
 my $synopsis      = "$executable :: classify and annotate sequences using a model library";
 my $date          = scalar localtime();
-my $version       = "1.3dev3";
-my $releasedate   = "Oct 2021";
+my $version       = "1.3dev4";
+my $releasedate   = "Dec 2021";
 my $pkgname       = "VADR";
 
 # make *STDOUT file handle 'hot' so it automatically flushes whenever we print to it
@@ -5056,8 +5074,8 @@ sub add_frameshift_alerts_for_one_sequence {
 
           # now step through each subseq that has a different frame and report frameshift alerts when necessary
           for($f = 0; $f < $nframe_stok; $f++) { 
-            printf("f: $f frame_stok: %s\n", $frame_stok_A[$f]);
-            printf("f: $f frame_mtok: %s\n", $frame_mtok_A[$f]);
+            #printf("f: $f frame_stok: %s\n", $frame_stok_A[$f]);
+            #printf("f: $f frame_mtok: %s\n", $frame_mtok_A[$f]);
             if($frame_stok_A[$f] =~ /^([123]),I(\d+),(\d+)\.\.(\d+),D(\d+)\,([01])$/) { 
               my ($cur_frame,  $cur_ninsert, $cur_sstart, $cur_sstop, $cur_ndelete, $cur_sgmend) = ($1, $2, $3, $4, $5, $6); 
               my ($cur_mframe, $cur_mstart, $cur_mstop, $cur_msgmend);
