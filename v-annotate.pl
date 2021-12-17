@@ -1853,7 +1853,9 @@ if($do_pv_blastx) {
                              $ftr_info_blastx_HR, \%{$ftr_results_HHAH{$mdl_name}}, \%opt_HH, \%ofile_info_HH);
         
         add_protein_validation_alerts($mdl_name, \@{$mdl_seq_name_HA{$mdl_name}}, \%seq_len_H, \@{$ftr_info_HAH{$mdl_name}}, \%alt_info_HH, 
-                                      \%{$ftr_results_HHAH{$mdl_name}}, \%alt_ftr_instances_HHH, \%opt_HH, \%{$ofile_info_HH{"FH"}});
+                                      \%{$ftr_results_HHAH{$mdl_name}}, \%alt_ftr_instances_HHH,
+                                      ($do_replace_ns) ? \%rpn_output_HH : undef,
+                                      \%opt_HH, \%{$ofile_info_HH{"FH"}});
         ofile_OutputProgressComplete($start_secs, undef, $log_FH, *STDOUT);
       }
     }
@@ -6539,6 +6541,7 @@ sub make_protein_validation_fasta_file {
 #  $alt_info_HHR:           REF to array of hashes with information on the alerts, PRE-FILLED
 #  $ftr_results_HAHR:       REF to feature results HAH, PRE-FILLED
 #  $alt_ftr_instances_HHHR: REF to alert instances HAH, ADDED TO HERE
+#  $rpn_output_HHR          REF to 2D hash of -r related results to output, PRE-FILLED, undef unless -r
 #  $opt_HHR:                REF to 2D hash of option values, see top of sqp_opts.pm for description
 #  $FH_HR:                  REF to hash of file handles
 #
@@ -6547,10 +6550,10 @@ sub make_protein_validation_fasta_file {
 ################################################################# 
 sub add_protein_validation_alerts { 
   my $sub_name = "add_protein_validation_alerts";
-  my $nargs_expected = 9;
+  my $nargs_expected = 10;
   if(scalar(@_) != $nargs_expected) { printf STDERR ("ERROR, $sub_name entered with %d != %d input arguments.\n", scalar(@_), $nargs_expected); exit(1); } 
   
-  my ($mdl_name, $seq_name_AR, $seq_len_HR, $ftr_info_AHR, $alt_info_HHR, $ftr_results_HAHR, $alt_ftr_instances_HHHR, $opt_HHR, $FH_HR) = @_;
+  my ($mdl_name, $seq_name_AR, $seq_len_HR, $ftr_info_AHR, $alt_info_HHR, $ftr_results_HAHR, $alt_ftr_instances_HHHR, $rpn_output_HHR, $opt_HHR, $FH_HR) = @_;
   
   my $do_pv_hmmer = opt_Get("--pv_hmmer", $opt_HHR) ? 1 : 0;
 
@@ -6800,6 +6803,12 @@ sub add_protein_validation_alerts {
                   # check for 'indf5pst': blastx 5' end too short, not within $cur_5aln_tol nucleotides
                   if(! exists $alt_str_H{"indf5plg"}) { # only add indf5pst if indf5plg does not exist
                     if($start_diff > $cur_5aln_tol) { 
+                      HERE HERE HERE 
+                      # check if this should be a indf5psf or indf5psn based on whether there are Ns or not
+                      helper_get_overlap_with_rpn_coords_string($n_start,
+                                                                ($n_strand eq "+") ? ($p_sstart-1 : $p_sstart+1),
+                                                                $
+                      
                       $alt_str_H{"indf5pst"} = sprintf("%s%s%d>%d", 
                                                        "seq:" . vdr_CoordsSegmentCreate($n_start, (($n_strand eq "+") ? $p_sstart-1 : $p_sstart+1), $n_strand, $FH_HR) . ";", 
                                                        "mdl:" . vdr_CoordsSinglePositionSegmentCreate(vdr_Feature5pMostPosition($ftr_info_AHR->[$ftr_idx]{"coords"}, $FH_HR), $n_strand, $FH_HR) . ";",

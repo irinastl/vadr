@@ -2571,10 +2571,16 @@ sub vdr_AlertInfoInitialize {
                    0, 1, 0, 1, # always_fails, causes_failure, prevents_annot, misc_not_failure
                    $FH_HR);
 
-  vdr_AlertInfoAdd($alt_info_HHR, "indf5pst", "feature",
+  vdr_AlertInfoAdd($alt_info_HHR, "indf5psf", "feature",
                    "INDEFINITE_ANNOTATION_START", # short description
                    "protein-based alignment does not extend close enough to nucleotide-based alignment 5' endpoint", # long description
                    0, 1, 0, 1, # always_fails, causes_failure, prevents_annot, misc_not_failure
+                   $FH_HR);
+
+  vdr_AlertInfoAdd($alt_info_HHR, "indf5psn", "feature",
+                   "INDEFINITE_ANNOTATION_START", # short description
+                   "protein-based alignment does not extend close enough to nt-based alignment 5' endpoint probably due to ambiguities", # long description
+                   0, 0, 0, 1, # always_fails, causes_failure, prevents_annot, misc_not_failure
                    $FH_HR);
 
   vdr_AlertInfoAdd($alt_info_HHR, "indf3gap", "feature",
@@ -4073,10 +4079,12 @@ sub vdr_CoordsSegmentOverlap {
     return (0, "");
   }
 
-  if($strand1 eq "-") { # $strand2 must be "-" too
+  if($start1 > $stop1) {
     utl_Swap(\$start1, \$stop1); 
-    utl_Swap(\$start2, \$stop2);
-  }
+  }    
+  if($start2 > $stop2) {
+    utl_Swap(\$start2, \$stop2); 
+  }    
 
   return seq_Overlap($start1, $stop1, $start2, $stop2, $FH_HR);
 }
